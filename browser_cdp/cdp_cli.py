@@ -219,11 +219,16 @@ class AliasUnderscoreGroup(click.Group):
         try:
             super().invoke(ctx)
         except click.UsageError as exc:
-            # Show full help (including Examples) instead of bare error line.
+            # "No such command" errors should propagate normally — don't swallow them.
+            if "No such command" in exc.format_message():
+                raise
+            # For other UsageErrors (missing args, bad options), show full help
+            # (including Examples) instead of bare error line.
             help_ctx = exc.ctx if exc.ctx else ctx
             click.echo(help_ctx.get_help(), err=True)
             click.echo(f"\nError: {exc.format_message()}", err=True)
             ctx.exit(2)
+
 
 
 @click.group(cls=AliasUnderscoreGroup)
@@ -948,6 +953,8 @@ def exp():
       webcli exp save api yiche.com rank       # 从 stdin 保存/更新站点级经验
       webcli exp save workflow - deploy-ude    # 从 stdin 保存/更新流程经验
       webcli exp edit api yiche.com rank       # 用编辑器打开经验文件
+      webcli exp del api yiche.com rank         # 删除经验（有确认提示）
+      webcli exp del api yiche.com rank --yes   # 跳过确认直接删除
     """
 
 
@@ -1058,6 +1065,42 @@ def exp_edit(category: str, site: str, name: str):
 
     editor = os.environ.get("EDITOR", "vi")
     os.execvp(editor, [editor, str(exp_file)])
+
+@exp.command(name="del")
+@click.argument("category", type=click.Choice(VALID_CATEGORIES))
+@click.argument("site")
+@click.argument("name")
+@click.option("--yes", "-y", is_flag=True, default=False, help="跳过确认直接删除。")
+def exp_rm(category: str, site: str, name: str, yes: bool):
+    """删除一条经验记录（默认有确认提示）。
+
+    \b
+    示例：
+      webcli exp del api yiche.com rank         # 删除前需确认
+      webcli exp del anti-crawl - cloudflare    # 删除全局经验
+      webcli exp del api yiche.com rank --yes   # 跳过确认直接删除
+    """
+    exp_file = _exp_path(category, site, name)
+    if not exp_file.exists():
+        click.echo(f"经验不存在：{exp_file}", err=True)
+        sys.exit(1)
+
+    click.echo(f"将要删除：{exp_file}")
+    if not yes:
+        confirmed = click.confirm("确认删除？此操作不可撤销", default=False)
+        if not confirmed:
+            click.echo("已取消")
+            return
+
+    exp_file.unlink()
+    click.echo(f"✅ 已删除：{exp_file}")
+
+    # 如果父目录为空则一并清理，避免留下空目录
+    parent = exp_file.parent
+    if parent.exists() and not any(parent.iterdir()):
+        parent.rmdir()
+        click.echo(f"   （已清理空目录：{parent}）")
+
 
 
 # Shortcut for site-scoped categories: webcli exp api <site> [name]
