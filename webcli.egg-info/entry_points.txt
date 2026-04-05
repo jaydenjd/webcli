@@ -1,5 +1,0 @@
-[console_scripts]
-cdp-proxy = browser_cdp.cdp_proxy:main
-check-deps = browser_cdp.check_deps:main
-match-site = browser_cdp.match_site:main
-webcli = browser_cdp.cdp_cli:main

@@ -1,0 +1,6 @@
+.DS_Store
+*.log
+references/site-patterns/*.md
+
+*.egg-info
+.idea
