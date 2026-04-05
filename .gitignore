@@ -4,3 +4,4 @@ references/site-patterns/*.md
 
 *.egg-info
 .idea
+.*cpython-312.pyc
