@@ -239,6 +239,41 @@ webcli click $TARGET "button.submit"      # 点击元素
 webcli close $TARGET                      # 关闭 tab
 ```
 
+### 动态 JS 源码获取
+
+用于破解加密接口、分析混淆代码——获取浏览器运行时已加载的所有 JS 脚本源码（包括动态 `import()` 加载的模块）。
+
+```bash
+# 第一步：开启脚本捕获（必须在页面加载前或加载时执行）
+webcli scripts-enable $TARGET
+
+# 第二步：导航到目标页面（触发脚本加载）
+webcli navigate $TARGET https://example.com
+
+# 第三步：列出所有已加载的脚本
+webcli scripts-list $TARGET
+
+# 按 URL 关键词过滤（找加密相关的 chunk）
+webcli scripts-list $TARGET --filter encrypt
+webcli scripts-list $TARGET --filter chunk
+
+# 第四步：获取指定脚本的完整源码
+webcli scripts-source $TARGET <scriptId>
+
+# 保存到文件（推荐，源码通常很大）
+webcli scripts-source $TARGET <scriptId> -o decrypt.js
+```
+
+**典型破解流程**：
+```bash
+TARGET=$(webcli new about:blank --id-only)
+webcli scripts-enable $TARGET          # 先开启捕获
+webcli navigate $TARGET https://target.com  # 再导航
+webcli scripts-list $TARGET --filter sign   # 找签名/加密相关脚本
+webcli scripts-source $TARGET <scriptId> -o sign.js  # 导出源码分析
+webcli close $TARGET
+```
+
 ### 页面内导航
 
 - **`webcli click`**：当前 tab 内点击，适合连续操作（展开、翻页、进入详情）

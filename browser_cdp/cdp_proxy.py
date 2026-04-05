@@ -47,6 +47,11 @@ network_request_map: Dict[str, dict] = {}  # requestId -> record (cross-target)
 # Dialog state: targetId -> dialog info
 pending_dialogs: Dict[str, dict] = {}
 
+# Script capture state: targetId -> list of script info
+# Each script: {scriptId, url, source (lazy loaded)}
+script_captures: Dict[str, list] = {}
+script_id_map: Dict[str, dict] = {}  # scriptId -> {targetId, url, source}
+
 
 async def check_port(port: int, host: str = CHROME_HOST, timeout: float = 2.0) -> bool:
     """Check if a port is open via TCP connection."""
@@ -302,6 +307,19 @@ async def connect() -> None:
                             )
                             if target_id_for_session:
                                 pending_dialogs.pop(target_id_for_session, None)
+
+                        # Script capture: Debugger.scriptParsed events
+                        elif method == "Debugger.scriptParsed" and msg_session:
+                            target_id_for_session = next(
+                                (tid for tid, sid in sessions.items() if sid == msg_session), None
+                            )
+                            if target_id_for_session and target_id_for_session in script_captures:
+                                script_info = params
+                                script_captures[target_id_for_session].append(script_info)
+                                script_id_map[params["scriptId"]] = {
+                                    "targetId": target_id_for_session,
+                                    "url": params.get("url", ""),
+                                }
 
                         # Intercept requests to Chrome debugging port (anti-detection)
                         if data.get("method") == "Fetch.requestPaused":
@@ -1747,12 +1765,103 @@ async def handle_network_clear(request: aiohttp_web.Request) -> aiohttp_web.Resp
     target_id = request.query["target"]
     count = len(network_captures.get(target_id, []))
     if target_id in network_captures:
-        # Remove from request map too
         ids_to_remove = {r.get("requestId") for r in network_captures[target_id]}
         for rid in ids_to_remove:
             network_request_map.pop(rid, None)
         network_captures[target_id] = deque(maxlen=MAX_CAPTURES_PER_TARGET)
     return aiohttp_web.json_response({"cleared": count})
+
+
+async def handle_scripts_enable(request: aiohttp_web.Request) -> aiohttp_web.Response:
+    """Enable Debugger domain to capture all scripts for a target."""
+    await connect()
+    target_id = request.query["target"]
+    session_id = await ensure_session(target_id)
+    
+    # Initialize script capture for this target
+    if target_id not in script_captures:
+        script_captures[target_id] = []
+    
+    # Enable Debugger domain
+    try:
+        await send_cdp("Debugger.enable", {}, session_id)
+        return aiohttp_web.json_response({"enabled": True, "targetId": target_id})
+    except Exception as exc:
+        return aiohttp_web.json_response({"error": str(exc)}, status=500)
+
+
+async def handle_scripts_list(request: aiohttp_web.Request) -> aiohttp_web.Response:
+    """List captured scripts for a target, with optional URL keyword filter.
+
+    By default, chrome-extension:// scripts are excluded since their source
+    cannot be retrieved via the page session. Pass ?all=1 to include them.
+    """
+    target_id = request.query.get("target", "")
+    url_filter = request.query.get("filter", "").lower()
+    include_all = request.query.get("all", "0") == "1"
+
+    def _format_script(script: dict) -> dict:
+        return {"scriptId": script["scriptId"], "url": script.get("url", "")}
+
+    def _matches(script: dict) -> bool:
+        url = script.get("url", "")
+        if not include_all and url.startswith("chrome-extension://"):
+            return False
+        return not url_filter or url_filter in url.lower()
+
+    if not target_id:
+        result = {}
+        for tid, scripts in script_captures.items():
+            result[tid] = [_format_script(s) for s in scripts if _matches(s)]
+        return aiohttp_web.json_response(result)
+
+    scripts = script_captures.get(target_id, [])
+    matched = [_format_script(s) for s in scripts if _matches(s)]
+    return aiohttp_web.json_response({
+        "targetId": target_id,
+        "count": len(matched),
+        "scripts": matched,
+    })
+
+
+async def handle_scripts_source(request: aiohttp_web.Request) -> aiohttp_web.Response:
+    """Get source code for a specific script."""
+    await connect()
+    target_id = request.query["target"]
+    script_id = request.query["scriptId"]
+    session_id = await ensure_session(target_id)
+    
+    try:
+        resp = await send_cdp("Debugger.getScriptSource", {
+            "scriptId": script_id,
+        }, session_id)
+        
+        if "result" in resp:
+            source = resp["result"].get("scriptSource", "")
+            # Find script info
+            script_info = None
+            for s in script_captures.get(target_id, []):
+                if s["scriptId"] == script_id:
+                    script_info = s
+                    break
+            
+            return aiohttp_web.json_response({
+                "scriptId": script_id,
+                "url": script_info["url"] if script_info else "",
+                "sourceLength": len(source),
+                "source": source,
+            })
+        else:
+            return aiohttp_web.json_response({"error": resp.get("error", "Unknown error")}, status=400)
+    except Exception as exc:
+        error_msg = str(exc)
+        if "No script for id" in error_msg:
+            return aiohttp_web.json_response({
+                "error": error_msg,
+                "hint": "This script belongs to a chrome-extension and cannot be retrieved via the page session. Use 'scripts-list' (without --all) to see only retrievable scripts.",
+            }, status=400)
+        return aiohttp_web.json_response({"error": error_msg}, status=500)
+
 
 async def handle_not_found(request: aiohttp_web.Request) -> aiohttp_web.Response:
     """Handle unknown endpoints."""
@@ -1858,6 +1967,9 @@ async def main() -> None:
     app.router.add_get("/network/requests", handle_network_requests)
     app.router.add_get("/network/request", handle_network_request_detail)
     app.router.add_get("/network/clear", handle_network_clear)
+    app.router.add_get("/scripts/enable", handle_scripts_enable)
+    app.router.add_get("/scripts/list", handle_scripts_list)
+    app.router.add_get("/scripts/source", handle_scripts_source)
     app.router.add_get("/", handle_not_found)
     
     print(f"[CDP Proxy] Running on http://localhost:{PORT}")

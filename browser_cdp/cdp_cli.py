@@ -147,10 +147,10 @@ def ensure_proxy() -> bool:
             # Proxy is up — whether or not Chrome is connected yet, let the
             # Proxy handle reconnection lazily when the first request arrives.
             return True
-        print("[CDP CLI] Detected stale proxy process, restarting...")
+        print("[CDP CLI] Detected stale proxy process, restarting...", file=sys.stderr)
         _kill_proxy_on_port(PROXY_PORT)
 
-    print("[CDP CLI] Starting CDP Proxy...")
+    print("[CDP CLI] Starting CDP Proxy...", file=sys.stderr)
     proxy_script = SCRIPT_DIR / "cdp_proxy.py"
     log_file = Path(os.environ.get("TMPDIR", "/tmp")) / "cdp-proxy.log"
 
@@ -174,16 +174,16 @@ def ensure_proxy() -> bool:
         health = _health_check()
         if health and health.get("status") == "ok":
             if health.get("connected"):
-                print("[CDP CLI] CDP Proxy is ready")
+                print("[CDP CLI] CDP Proxy is ready", file=sys.stderr)
             else:
-                print("[CDP CLI] CDP Proxy started (Chrome not yet connected)")
-                print("[CDP CLI] Please ensure Chrome has remote debugging enabled:")
-                print("[CDP CLI]   - Desktop: Open chrome://inspect/#remote-debugging and check 'Allow remote debugging'")
-                print("[CDP CLI]   - Linux Headless: google-chrome --headless=new --remote-debugging-port=9223 --user-data-dir=/tmp/chrome-9223 --no-first-run &")
+                print("[CDP CLI] CDP Proxy started (Chrome not yet connected)", file=sys.stderr)
+                print("[CDP CLI] Please ensure Chrome has remote debugging enabled:", file=sys.stderr)
+                print("[CDP CLI]   - Desktop: Open chrome://inspect/#remote-debugging and check 'Allow remote debugging'", file=sys.stderr)
+                print("[CDP CLI]   - Linux Headless: google-chrome --headless=new --remote-debugging-port=9223 --user-data-dir=/tmp/chrome-9223 --no-first-run &", file=sys.stderr)
             return True
 
-    print("[CDP CLI] Proxy startup timeout")
-    print(f"[CDP CLI] Log: {log_file}")
+    print("[CDP CLI] Proxy startup timeout", file=sys.stderr)
+    print(f"[CDP CLI] Log: {log_file}", file=sys.stderr)
     return False
 
 
@@ -888,6 +888,79 @@ def network_clear(target_id: str):
     print(json.dumps(result, indent=2))
 
 
+# ─── Script Capture ──────────────────────────────────────────────────────────
+
+@cli.command(name="scripts-enable")
+@click.argument("target_id")
+def scripts_enable(target_id: str):
+    """Enable Debugger domain to start capturing all scripts for a tab.
+    
+    This must be called before scripts will be automatically captured.
+    After enabling, all scripts loaded by the page will be tracked.
+    
+    Examples:
+      webcli scripts-enable <id>
+      TARGET=$(webcli new https://example.com --id-only)
+      webcli scripts-enable $TARGET
+      webcli navigate $TARGET https://example.com
+      webcli scripts-list $TARGET
+    """
+    result = http_get(f"/scripts/enable?target={target_id}")
+    print(json.dumps(result, indent=2))
+
+
+@cli.command(name="scripts-list")
+@click.argument("target_id", required=False, default="")
+@click.option("--filter", "url_filter", default="", help="Filter scripts by URL keyword (case-insensitive).")
+@click.option("--all", "include_all", is_flag=True, default=False, help="Include chrome-extension:// scripts (not retrievable via scripts-source).")
+def scripts_list(target_id: str, url_filter: str, include_all: bool):
+    """List captured scripts for a tab (chrome-extension scripts excluded by default).
+
+    Examples:
+      webcli scripts-list                             # all tabs, page scripts only
+      webcli scripts-list <targetId>                  # specific tab
+      webcli scripts-list <targetId> --filter chunk   # filter by URL keyword
+      webcli scripts-list <targetId> --all            # include chrome-extension scripts
+    """
+    params = []
+    if target_id:
+        params.append(f"target={target_id}")
+    if url_filter:
+        params.append(f"filter={urllib.parse.quote(url_filter)}")
+    if include_all:
+        params.append("all=1")
+    path = "/scripts/list" + (f"?{'&'.join(params)}" if params else "")
+    result = http_get(path)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+@cli.command(name="scripts-source")
+@click.argument("target_id")
+@click.argument("script_id")
+@click.option("--output", "-o", default="", help="Save source to file instead of printing.")
+def scripts_source(target_id: str, script_id: str, output: str):
+    """Get source code for a specific script.
+    
+    Examples:
+      webcli scripts-source <targetId> <scriptId>
+      webcli scripts-source <targetId> <scriptId> -o script.js
+    """
+    result = http_get(f"/scripts/source?target={target_id}&scriptId={script_id}", timeout=30000)
+    if output:
+        Path(output).write_text(result.get("source", ""), encoding="utf-8")
+        print(json.dumps({
+            "scriptId": result.get("scriptId"),
+            "url": result.get("url"),
+            "sourceLength": result.get("sourceLength"),
+            "savedTo": output,
+        }, indent=2))
+    else:
+        print(f"# Script: {result.get('scriptId')}")
+        print(f"# URL: {result.get('url')}")
+        print(f"# Length: {result.get('sourceLength')} characters\n")
+        print(result.get("source", ""))
+
+
 # ─── Utility ─────────────────────────────────────────────────────────────────
 
 @cli.command()
@@ -1223,6 +1296,11 @@ webcli - Browser automation via Chrome DevTools Protocol
   network-request <targetId> <requestId>       Get request detail + response body
   network-clear <targetId>                     Clear captured requests
   network-stop <targetId>                      Stop capturing
+
+── Script Capture ──────────────────────────────────────────────────────────
+  scripts-enable <targetId>                    Enable Debugger to capture all scripts
+  scripts-list [targetId]                      List captured scripts
+  scripts-source <targetId> <scriptId> [-o]    Get script source code
 
 ── Utility ─────────────────────────────────────────────────────────────────
   health                                       Proxy health check
