@@ -250,6 +250,17 @@ def targets(target_type: str):
     print(json.dumps(result, indent=2))
     print("\n# Next: webcli new <url>  |  webcli open-monitored <url>  |  webcli close <targetId>")
 
+@cli.command()
+@click.option("--type", "target_type", default="", help="Filter by type (page, worker...).")
+def tabs(target_type: str):
+    """List all browser tabs (alias for targets)."""
+    path = "/targets"
+    if target_type:
+        path += f"?type={target_type}"
+    result = http_get(path)
+    print(json.dumps(result, indent=2))
+    print("\n# Next: webcli new <url>  |  webcli open-monitored <url>  |  webcli close <targetId>")
+
 
 @cli.command()
 @click.argument("url")
@@ -970,7 +981,7 @@ def exp_list(site: str):
 
     sites_dir = EXPERIENCE_DIR / "sites"
     if sites_dir.exists():
-        for site_dir in sorted(sites_dir.iterdir()):
+        for site_dir in sorted(p for p in sites_dir.iterdir() if p.is_dir()):
             if site and site_dir.name != site:
                 continue
             for category_dir in sorted(site_dir.iterdir()):
