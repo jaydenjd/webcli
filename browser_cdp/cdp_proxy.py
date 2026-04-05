@@ -539,7 +539,19 @@ async def handle_eval(request: aiohttp_web.Request) -> aiohttp_web.Response:
         }, session_id)
 
         if "result" in resp and "result" in resp["result"]:
-            return aiohttp_web.json_response({"value": resp["result"]["result"]["value"]})
+            cdp_result = resp["result"]["result"]
+            result_type = cdp_result.get("type", "")
+            if "value" in cdp_result:
+                return aiohttp_web.json_response({"value": cdp_result["value"]})
+            elif result_type == "undefined":
+                return aiohttp_web.json_response({"value": None})
+            else:
+                # 对象/数组等复杂类型，返回 type 和 description 供调用方参考
+                return aiohttp_web.json_response({
+                    "value": None,
+                    "type": result_type,
+                    "description": cdp_result.get("description", ""),
+                })
         elif "result" in resp and "exceptionDetails" in resp["result"]:
             return aiohttp_web.json_response(
                 {"error": resp["result"]["exceptionDetails"]["text"]}, status=400
