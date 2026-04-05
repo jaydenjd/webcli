@@ -1,0 +1,331 @@
+## 背景
+Claude Code 原本有 WebSearch、WebFetch，但缺少调度策略和浏览器自动化能力。这个 skill 补上的是：**联网策略 + CDP 浏览器操作 + 站点经验积累**。
+
+---
+
+
+## 安装
+
+**方式一：让 Claude 自动安装**
+
+```
+帮我安装这个 skill：https://github.com/xxx/webcli
+```
+
+**方式二：Plugin 安装**
+
+```bash
+claude plugin marketplace add https://github.com/xxx/webcli
+claude plugin install webcli@webcli --scope user
+```
+
+**方式三：手动**
+
+```bash
+git clone https://github.com/xxx/webcli ~/.claude/skills/webcli
+```
+
+## 前置配置（CDP 模式）
+
+> **设计说明**：macOS 用户有"日常 Chrome"（携带登录态和 Cookie），Proxy 直连即可；Linux 服务器没有日常 Chrome，需要手动启动 headless Chrome，但无需区分登录态与隔离环境，流程更简单。
+
+### macOS / Windows 桌面环境
+
+Chrome 需要开启远程调试（一次性配置）：
+
+1. Chrome 地址栏打开 `chrome://inspect/#remote-debugging`
+2. 勾选 **Allow remote debugging for this browser instance**（可能需要重启浏览器）
+
+配置完成后，Proxy 自动探测到已有 Chrome（9222），直接使用：
+
+```bash
+webcli health
+```
+
+**需要隔离环境时**（操作不同账号、不带登录态），手动启动第二个 Chrome：
+
+**macOS**（GUI 应用启动后自动后台，不会阻塞）：
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --remote-debugging-port=9223 \
+  --user-data-dir="/tmp/chrome-9223" \
+  --no-first-run --no-default-browser-check
+```
+
+**Windows**（用 `start` 后台启动）：
+```cmd
+start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" ^
+  --remote-debugging-port=9223 ^
+  --user-data-dir="%TEMP%\chrome-9223" ^
+  --no-first-run --no-default-browser-check
+```
+
+```bash
+# 启动第二个 Proxy 连接隔离 Chrome
+python browser_cdp/cdp_proxy.py --port 3457 --chrome-port 9223 &
+
+# 操作隔离 Chrome 时加端口前缀
+CDP_PROXY_PORT=3457 webcli new https://example.com
+```
+
+### Linux 无界面环境
+
+Linux 服务器没有"日常 Chrome"，无需区分登录态与隔离环境。直接启动一个 headless Chrome，Proxy 自动探测，`webcli` 无需任何额外端口配置：
+
+```bash
+# headless 模式会阻塞前台，必须加 & 后台运行
+google-chrome --headless=new --remote-debugging-port=9223 \
+  --user-data-dir=/tmp/chrome-9223 --no-first-run &
+
+# Docker 环境（需额外参数）
+google-chrome --headless=new --remote-debugging-port=9223 \
+  --no-sandbox --disable-dev-shm-usage \
+  --user-data-dir="$HOME/.config/google-chrome" --no-first-run &
+
+# 启动后直接使用，无需指定任何端口
+webcli health
+```
+
+| | macOS 默认 | macOS 隔离实例 | Linux |
+|--|-----------|--------------|-------|
+| Chrome 端口 | 9222（已有） | 9223（手动启动） | 9223（手动启动） |
+| Proxy 端口 | 3456（默认） | 3457（手动启动） | 3456（默认） |
+| `webcli` 使用 | 直接用 | `CDP_PROXY_PORT=3457 webcli` | 直接用 |
+
+环境检查（Agent 运行时会自动完成前置检查，无需手动执行）：
+
+```bash
+check-deps
+```
+
+## webcli 常用命令
+
+Proxy 通过 WebSocket 直连 Chrome，Agent 会自动管理生命周期，无需手动启动。所有操作通过 `webcli` 执行：
+
+```bash
+# 查看所有命令
+webcli --help
+
+# Tab 管理
+webcli targets                                    # 列出所有 tab
+webcli new https://example.com                    # 新建 tab
+TARGET=$(webcli new https://example.com --id-only) # 新建并获取 targetId
+webcli open-monitored https://example.com         # 新建 tab 并同时开启网络监控
+webcli close $TARGET                              # 关闭 tab
+
+# 页面操作
+webcli snapshot $TARGET                           # 获取无障碍树（推荐用于 AI 导航）
+webcli eval $TARGET "document.title"              # 执行 JS
+webcli screenshot $TARGET ./shot.png              # 截图
+webcli scroll $TARGET bottom                      # 滚动到底部
+
+# 点击与交互
+webcli click $TARGET "button.submit"              # JS 点击
+webcli click-at $TARGET ".upload-btn"             # 真实鼠标点击
+webcli find $TARGET text "下一页" click           # 按文字内容点击
+webcli fill $TARGET "input[name=q]" "搜索词"      # 填写输入框
+
+# 网络请求捕获
+webcli network-start $TARGET                      # 开始捕获
+webcli network-requests $TARGET --type xhr,fetch  # 查看请求列表
+webcli network-request $TARGET <requestId>        # 查看单个请求详情
+```
+
+## 手动启动 CDP Proxy
+
+通常无需手动启动，`webcli` 会自动管理 Proxy 生命周期。但在需要精确控制端口（如双实例并存）时，可直接传参启动：
+
+```bash
+# 基本启动（默认端口 3456，自动探测 Chrome）
+python browser_cdp/cdp_proxy.py
+
+# 指定 Proxy 端口和 Chrome 端口
+python browser_cdp/cdp_proxy.py --port 3456 --chrome-port 9222
+
+# 启动第二个 Proxy 连接另一个 Chrome 实例（后台运行）
+python browser_cdp/cdp_proxy.py --port 3457 --chrome-port 9223 &
+```
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--port` | Proxy HTTP 监听端口 | `CDP_PROXY_PORT` 环境变量，或 `3456` |
+| `--chrome-port` | Chrome 远程调试端口 | `CDP_CHROME_PORT` 环境变量，或自动探测 |
+
+> 命令行参数优先级高于环境变量。
+
+## 更新 webcli
+
+```bash
+# kill 掉 Proxy 进程后，执行任意 webcli 命令会自动重新拉起
+pkill -f "cdp_proxy"
+```
+
+## ⚠️ 使用前提醒
+
+通过浏览器自动化操作社交平台（如小红书）存在账号被平台限流或封禁的风险。**强烈建议使用小号进行操作。**
+
+## 使用
+
+安装后直接让 Agent 执行联网任务，skill 自动接管：
+
+- "帮我搜索 xxx 最新进展"
+- "读一下这个页面：[URL]"
+- "去小红书搜索 xxx 的账号"
+- "帮我在创作者平台发一篇图文"
+- "同时调研这 5 个产品的官网，给我对比摘要"
+
+## 场景全景图
+
+### 浏览器操作 → 命令对照
+
+| 操作 | 命令 | 样例 |
+|------|------|------|
+| 打开链接 | `webcli new <url>` | `webcli new https://www.bilibili.com/v/popular/all` |
+| 点击元素 | `webcli click <id> <selector>` | `webcli click $T "#login-btn"` |
+| 真实鼠标点击 | `webcli click-at <id> <selector>` | 滑块验证码、Canvas 元素 |
+| 按文字点击 | `webcli find <id> --by text "下一页" --action click` | 不需要知道选择器 |
+| 填写表单 | `webcli fill <id> <selector> <value>` | `webcli fill $T "#search" "iPhone 16"` |
+| 截图 | `webcli screenshot <id> /tmp/out.png` | 截图展示二维码、采集视频帧 |
+| 抓包 | `webcli open-monitored <url>` + `network-requests` | 找到页面背后的数据接口 |
+| 执行 JS | `webcli eval <id> "<js>"` | 提取 DOM 数据、操控 video 元素 |
+| 滚动 | `webcli scroll <id> bottom` | 触发懒加载，加载更多内容 |
+| 等待 | `webcli wait <id> --text "加载完成"` | 等待异步内容渲染完毕 |
+| 获取 Cookie | `webcli cookies <id>` | 登录后导出 Cookie 供后续使用 |
+
+---
+
+### 使用场景 → 完整流程样例
+
+#### 📊 数据抓取（B站热门榜）
+
+**用户说**：「帮我抓取 B站今天的热门视频榜单」
+
+```
+1. 查询经验：webcli exp action bilibili.com popular-list
+   → 有经验！直接按经验执行，跳过探索步骤
+
+2. 打开页面，滚动到底部触发懒加载
+   webcli new https://www.bilibili.com/v/popular/all
+   webcli scroll $T bottom && sleep 1.5
+
+3. 用 eval 提取数据（经验提供了选择器）
+   webcli eval $T "Array.from(document.querySelectorAll('.video-card')).map(c => ({
+     rank: ..., title: ..., up: ..., link: ...
+   }))"
+```
+
+**结果**：60 条热门视频数据，含排名、标题、UP主、链接
+
+---
+
+#### 🔍 数据收集（发现并复用接口）
+
+**用户说**：「帮我查一下易车最新的汽车销量排行」
+
+```
+1. 查询经验：webcli exp api yiche.com rank → 无经验，开始探索
+
+2. 打开页面并开启网络监控
+   webcli open-monitored https://www.yiche.com/rank/
+
+3. 查找数据接口
+   webcli network-requests $T --type xhr,fetch
+   → 发现：GET https://api.yiche.com/rank/sales?ps=20&pn=1
+
+4. 验证接口直接可用，curl 直接拿数据 ✅
+
+5. 自动沉淀经验（无需用户指令）
+   webcli exp save api yiche.com rank << EOF
+   # 易车销量榜接口
+   ## 接口信息
+   - URL: https://api.yiche.com/rank/sales?ps={size}&pn={page}
+   ...
+   EOF
+```
+
+**下次**：直接读经验，秒级完成，无需重新探索
+
+---
+
+#### 🤖 自动化操作（自动发帖）
+
+**用户说**：「帮我在小红书发一篇笔记，标题是 xxx，内容是 yyy」
+
+```
+1. 查询经验：webcli exp action xiaohongshu.com post → 有经验，含关键选择器
+
+2. 打开发布页
+   webcli new https://creator.xiaohongshu.com/publish/publish
+
+3. 按经验填写内容并发布
+   webcli fill $T ".title-input" "xxx"
+   webcli fill $T ".content-editor" "yyy"
+   webcli click $T ".publish-btn"
+   webcli wait $T --text "发布成功"
+```
+
+---
+
+#### 🔄 流程操作（查询 SLS 日志）
+
+**用户说**：「帮我查一下今天 order-service 的 ERROR 日志」
+
+```
+1. 查询经验：webcli exp workflow query-sls-log → 有经验，含完整操作步骤
+
+2. 打开 SLS 控制台，选择 Logstore，填写查询条件
+   webcli new https://sls.console.aliyun.com/...
+   webcli find $T --by text "order-service" --action click
+   webcli fill $T ".query-input" "level: ERROR"
+   webcli click $T ".search-btn"
+
+3. 等待结果，提取并分析日志
+   webcli wait $T --text "查询完成"
+   webcli eval $T "提取日志列表..."
+```
+
+---
+
+#### 🔐 登录态操作（内部系统）
+
+**用户说**：「帮我在 Aone 上查一下我今天的 CR 列表」
+
+```
+直连用户日常 Chrome（天然携带登录态，无需任何登录步骤）
+webcli new https://aone.alibaba-inc.com/...
+webcli eval $T "提取 CR 列表..."
+```
+
+---
+
+### 经验场景 → 沉淀什么、怎么用
+
+| 经验类型 | 沉淀时机 | 存储内容 | 下次使用效果 |
+|----------|----------|----------|-------------|
+| **api** | 发现并验证了数据接口 | URL 模板、参数说明、响应字段 | 直接 curl 调接口，跳过页面操作 |
+| **login** | 完成了自动化登录 | 选择器、操作步骤、Cookie 字段 | 自动重新登录，无需用户介入 |
+| **action** | 完成了复杂页面操作 | 选择器、操作序列、已知陷阱 | 直接执行，跳过探索和试错 |
+| **anti-crawl** | 突破了反爬机制 | 识别特征、对抗方案、成功率 | 遇到同类反爬直接套用方案 |
+| **workflow** | 完成了跨系统流程 | 涉及站点、步骤序列、条件分支 | 整个流程一键复现 |
+
+**经验带来的核心价值**：
+
+```
+第一次执行某任务：探索 → 试错 → 成功 → 自动沉淀经验   耗时：5-15 分钟
+第二次执行同类任务：查询经验 → 直接执行               耗时：30 秒 - 2 分钟
+
+积累效应：经验越多 → 执行越快 → 覆盖场景越广
+```
+
+## 设计哲学
+
+> Skill = 哲学 + 技术事实，不是操作手册。讲清 tradeoff 让 AI 自己选，不替它推理。
+
+详见 [SKILL.md](./SKILL.md) 中的浏览哲学部分。
+
+## License
+
+
+## Star History
+
+
