@@ -1,6 +1,6 @@
 .DS_Store
 *.log
-references/site-patterns/*.md
+webcli_exp/site-patterns/*.md
 
 *.egg-info
 .idea

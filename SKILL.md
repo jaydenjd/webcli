@@ -1,7 +1,7 @@
 ---
 name: webcli
 license: MIT
-github: https://github.com/xxx/webcli
+github: https://github.com/jaydenjd/webcli
 description: 所有联网操作必须通过此 skill 处理，包括：搜索、网页抓取、登录后操作、网络交互等。 触发场景：用户要求搜索信息、查看网页内容、访问需要登录的网站、操作网页界面、抓取数据、爬虫、读取动态渲染页面、以及任何需要真实浏览器环境的网络任务。
 metadata:
   author: 新南 
@@ -158,7 +158,7 @@ CDP_PROXY_PORT=3457 webcli new https://example.com
  ├── 完成了复杂的页面交互操作 → 建议沉淀 action 经验
  └── 纯复用已有经验，无新发现 → 可跳过
  ↓
-加载 webcli 完整经验规范（references/experience.md）
+加载 webcli 完整经验规范（webcli_exp/experience.md）
  ↓
 按对应模板撰写经验（API 经验必须含可运行代码）
  ↓
@@ -429,14 +429,14 @@ updated: 2026-03-19
 
 | 文件 | 何时加载 |
 |------|---------|
-| `references/network-analysis.md` | 需要分析页面接口、抓包、查看请求参数/响应数据、研究加密参数时 |
-| `references/experience.md` | 任务完成后执行经验沉淀、或需要了解经验格式规范时 |
+| `webcli_exp/network-analysis.md` | 需要分析页面接口、抓包、查看请求参数/响应数据、研究加密参数时 |
+| `webcli_exp/experience.md` | 任务完成后执行经验沉淀、或需要了解经验格式规范时 |
 
 ## 经验自主沉淀（webcli exp）
 
 > 纯本地文件操作，不依赖 CDP Proxy，随时可用。所有 agent（Claude/Cursor/Windsurf）共享同一份经验库。
 
-经验存储在 `~/.agents/skills/webcli/experience/`（可用 `WEB_CLI_EXPERIENCE_DIR` 自定义）：
+经验存储在 `~/.agents/skills/webcli_exp/`（可用 `WEB_CLI_EXPERIENCE_DIR` 自定义）：
 - `sites/{domain}/api/` `login/` `action/`
 - `anti-crawl/`（跨站点反爬经验）
 
@@ -492,4 +492,4 @@ webcli exp rm api yiche.com rank --yes               # 跳过确认直接删除
 webcli exp save workflow - deploy-ude                # 全局经验（site 用 - 占位）
 ```
 
-> 详细格式规范见 `references/experience.md`。
+> 详细格式规范见 `webcli_exp/experience.md`。

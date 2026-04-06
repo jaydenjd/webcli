@@ -1004,13 +1004,13 @@ def health():
 
 # ─── Experience commands (pure local file ops, no Proxy needed) ───────────────
 
-# Experience root: unified under ~/.agents/skills/webcli/experience/
+# Experience root: unified under ~/.agents/skills/webcli_exp/
 # This path is agent-platform-agnostic — the same experience library is shared
 # across Claude, Cursor, Windsurf, and any other agent that installs this skill.
 # Override via WEB_CLI_EXPERIENCE_DIR env var if needed.
 EXPERIENCE_DIR = Path(
     os.environ.get("WEB_CLI_EXPERIENCE_DIR")
-    or Path.home() / ".agents" / "skills" / "webcli" / "experience"
+    or Path.home() / ".agents" / "skills" / "webcli_exp"
 )
 
 # Site-scoped categories: experience/sites/{domain}/{category}/{name}.md
@@ -1079,7 +1079,7 @@ def exp():
 def exp_list(site: str):
     """列出所有经验，或指定站点的经验。"""
     if not EXPERIENCE_DIR.exists():
-        click.echo("经验库为空（experience/ 目录不存在）")
+        click.echo("经验库为空（webcli_exp/ 目录不存在）")
         return
 
     entries: list[tuple[str, str, str]] = []
