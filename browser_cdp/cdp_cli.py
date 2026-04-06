@@ -1004,13 +1004,13 @@ def health():
 
 # ─── Experience commands (pure local file ops, no Proxy needed) ───────────────
 
-# Experience root: unified under ~/.agents/skills/references/
+# Experience root: unified under ~/.agents/skills/webcli_exp/
 # This path is agent-platform-agnostic — the same experience library is shared
 # across Claude, Cursor, Windsurf, and any other agent that installs this skill.
 # Override via WEB_CLI_EXPERIENCE_DIR env var if needed.
 EXPERIENCE_DIR = Path(
     os.environ.get("WEB_CLI_EXPERIENCE_DIR")
-    or Path.home() / ".agents" / "skills" / "references"
+    or Path.home() / ".agents" / "skills" / "webcli_exp"
 )
 
 # Site-scoped categories: experience/sites/{domain}/{category}/{name}.md
