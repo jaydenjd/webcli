@@ -153,6 +153,7 @@ webcli exp list bilibili.com                      # 查看某站点的所有经�
 webcli exp api bilibili.com popular-list          # 读取接口类经验
 webcli exp action xiaohongshu.com post            # 读取操作类经验
 webcli exp workflow query-sls-log                 # 读取跨系统流程经验
+webcli exp edit api yiche.com salesrank           # 读取并编辑经验
 webcli exp save api yiche.com rank                # 保存新经验（Agent 自动调用）
 ```
 
