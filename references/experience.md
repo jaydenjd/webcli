@@ -103,15 +103,26 @@
 │   使用 requests + BeautifulSoup/lxml 解析 HTML
 │    └── 轻量，无需启动浏览器
 │
-└── 必须浏览器交互（JS 渲染、动态加载、需要登录等）？
+├── JS 渲染页面（数据通过 JS 请求获取）？
+│    ↓ 是
+│   优先尝试破解协议（逆向加密、模拟请求）
+│    ↓ 协议可破解
+│   使用 requests/curl 模拟请求
+│    └── 轻量，无需启动浏览器
+│    ↓ 协议无法破解（加密无法逆向、强风控）
+│   使用 Playwright/Drissionpage
+│    └── 最重，但某些场景必需
+│
+└── 必须浏览器交互（需要登录态、复杂交互等）？
      ↓ 是
-    使用 Playwright/Selenium
+    使用 Playwright/Drissionpage
      └── 最重，但某些场景必需
 ```
 
 **关键原则**：
 - **SSR 页面 ≠ 需要浏览器**：如果页面是服务端渲染，数据在 HTML 中，直接用 `requests` 获取 HTML 后解析即可，**不需要启动浏览器**
-- **浏览器自动化是最后手段**：只有在必须 JS 渲染、动态加载、或需要模拟用户交互时才使用 Playwright/Selenium
+- **JS 渲染 ≠ 必须浏览器**：JS 渲染页面的数据通常也是通过 HTTP 请求获取的，**优先尝试破解协议**，只有在协议无法搞定（加密无法破解、强风控）时才使用浏览器自动化
+- **浏览器自动化是最后手段**：只有在协议无法破解、或必须模拟用户交互时才使用 Playwright/Drissionpage
 
 **示例对比**：
 
@@ -119,24 +130,8 @@
 # ❌ 错误：SSR 页面却用 Playwright
 from playwright.sync_api import sync_playwright
 
-def fetch_data():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto("https://example.com")  # SSR 页面，不需要浏览器
-        data = page.evaluate("() => document.querySelector('.data').textContent")
-        browser.close()
-        return data
-
 # ✅ 正确：SSR 页面用 requests + 解析
 import requests
-from bs4 import BeautifulSoup
-
-def fetch_data():
-    response = requests.get("https://example.com")
-    soup = BeautifulSoup(response.text, 'html.parser')
-    data = soup.select_one('.data').get_text(strip=True)
-    return data
 ```
 
 **代码经验不合格示例**：
@@ -146,20 +141,6 @@ webcli open-monitored https://example.com
 webcli eval $TARGET "document.querySelector('.data')"
 ```
 
-**代码经验合格示例**：
-```python
-# ✅ 使用通用库，完整可执行
-from playwright.sync_api import sync_playwright
-
-def fetch_data():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto("https://example.com")
-        data = page.evaluate("() => document.querySelector('.data').textContent")
-        browser.close()
-        return data
-```
 
 ### ❌ 不应该沉淀的经验
 
@@ -261,9 +242,9 @@ category: api | login | action | anti-crawl | workflow  # 经验分类
 tags: [search, user-info, video]     # 模型自动打的语义标签
 
 # 时间标签
-created_at: 2026-04-02               # 创建时间
-updated_at: 2026-04-02               # 最后更新时间
-last_used_at: 2026-04-02             # 上次使用时间
+created_at: 2026-04-02 00:00:00      # 创建时间
+updated_at: 2026-04-02 00:00:00      # 最后更新时间
+last_used_at: 2026-04-02 00:00:00    # 上次使用时间
 last_used_status: success | failed   # 上次使用状态
 
 # 质量标签
@@ -383,8 +364,8 @@ confidence: high | medium | low           # 可信度
 site: {域名}
 category: api
 status: verified
-created_at: {YYYY-MM-DD}
-updated_at: {YYYY-MM-DD}
+created_at: {YYYY-MM-DD HH:MM:SS}
+updated_at: {YYYY-MM-DD HH:MM:SS}
 ---
 
 # {接口名称}
@@ -476,8 +457,8 @@ updated_at: {YYYY-MM-DD}
 site: {域名}
 category: api
 status: verified
-created_at: {YYYY-MM-DD}
-updated_at: {YYYY-MM-DD}
+created_at: {YYYY-MM-DD HH:MM:SS}
+updated_at: {YYYY-MM-DD HH:MM:SS}
 ---
 
 # {数据名称}（DOM 提取）
@@ -527,8 +508,8 @@ updated_at: {YYYY-MM-DD}
 site: {域名}
 category: login
 status: verified
-created_at: {YYYY-MM-DD}
-updated_at: {YYYY-MM-DD}
+created_at: {YYYY-MM-DD HH:MM:SS}
+updated_at: {YYYY-MM-DD HH:MM:SS}
 ---
 
 # {登录方式名称}
@@ -568,8 +549,8 @@ webcli click {target_id} "#login-btn"
 site: {域名}
 category: action
 status: verified
-created_at: {YYYY-MM-DD}
-updated_at: {YYYY-MM-DD}
+created_at: {YYYY-MM-DD HH:MM:SS}
+updated_at: {YYYY-MM-DD HH:MM:SS}
 ---
 
 # {操作名称}
@@ -599,8 +580,8 @@ updated_at: {YYYY-MM-DD}
 ---
 category: anti-crawl
 status: verified
-created_at: {YYYY-MM-DD}
-updated_at: {YYYY-MM-DD}
+created_at: {YYYY-MM-DD HH:MM:SS}
+updated_at: {YYYY-MM-DD HH:MM:SS}
 ---
 
 # {反爬类型名称}
@@ -659,8 +640,8 @@ updated_at: {YYYY-MM-DD}
 ---
 category: workflow
 status: verified
-created_at: {YYYY-MM-DD}
-updated_at: {YYYY-MM-DD}
+created_at: {YYYY-MM-DD HH:MM:SS}
+updated_at: {YYYY-MM-DD HH:MM:SS}
 ---
 
 # {任务目标名称}（如：查询 SLS 日志、部署 UDE 服务）
