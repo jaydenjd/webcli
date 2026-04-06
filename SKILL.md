@@ -158,7 +158,7 @@ CDP_PROXY_PORT=3457 webcli new https://example.com
  ├── 完成了复杂的页面交互操作 → 建议沉淀 action 经验
  └── 纯复用已有经验，无新发现 → 可跳过
  ↓
-加载 webcli 完整经验规范（webcli_exp/experience.md）
+加载 webcli 完整经验规范（references/experience.md）
  ↓
 按对应模板撰写经验（API 经验必须含可运行代码）
  ↓
@@ -429,8 +429,8 @@ updated: 2026-03-19
 
 | 文件 | 何时加载 |
 |------|---------|
-| `webcli_exp/network-analysis.md` | 需要分析页面接口、抓包、查看请求参数/响应数据、研究加密参数时 |
-| `webcli_exp/experience.md` | 任务完成后执行经验沉淀、或需要了解经验格式规范时 |
+| `references/network-analysis.md` | 需要分析页面接口、抓包、查看请求参数/响应数据、研究加密参数时 |
+| `references/experience.md` | 任务完成后执行经验沉淀、或需要了解经验格式规范时 |
 
 ## 经验自主沉淀（webcli exp）
 
@@ -492,4 +492,4 @@ webcli exp rm api yiche.com rank --yes               # 跳过确认直接删除
 webcli exp save workflow - deploy-ude                # 全局经验（site 用 - 占位）
 ```
 
-> 详细格式规范见 `webcli_exp/experience.md`。
+> 详细格式规范见 `references/experience.md`。
