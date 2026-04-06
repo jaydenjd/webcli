@@ -218,8 +218,12 @@ class AliasUnderscoreGroup(click.Group):
     def invoke(self, ctx: click.Context) -> None:
         try:
             super().invoke(ctx)
+        except click.exceptions.NoArgsIsHelpError:
+            # Subcommand received no args — Click will print its own help.
+            # Just re-raise so Click handles it cleanly without double output.
+            raise
         except click.UsageError as exc:
-            # "No such command" errors should propagate normally — don't swallow them.
+            # "No such command" errors should propagate normally.
             if "No such command" in exc.format_message():
                 raise
             # For other UsageErrors (missing args, bad options), show full help
@@ -231,10 +235,12 @@ class AliasUnderscoreGroup(click.Group):
 
 
 
-@click.group(cls=AliasUnderscoreGroup)
-def cli():
+@click.group(cls=AliasUnderscoreGroup, invoke_without_command=True)
+@click.pass_context
+def cli(ctx: click.Context):
     """webcli - Browser automation via Chrome DevTools Protocol"""
-    pass
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 # ─── Tab management ───────────────────────────────────────────────────────────
@@ -1316,14 +1322,16 @@ def main():
         ensure_proxy()
     try:
         cli(standalone_mode=False)
+    except click.exceptions.NoArgsIsHelpError as exc:
+        # Subcommand invoked with no args — print its help cleanly and exit.
+        if exc.ctx:
+            click.echo(exc.ctx.get_help())
+        sys.exit(0)
     except click.UsageError as exc:
-        # Show full help (including Examples) instead of bare error line.
-        help_ctx = exc.ctx if exc.ctx else None
-        if help_ctx is not None:
-            click.echo(help_ctx.get_help(), err=True)
-            click.echo(f"\nError: {exc.format_message()}", err=True)
-        else:
-            click.echo(f"Error: {exc.format_message()}", err=True)
+        # Unhandled UsageErrors (e.g. bad options) — show error and exit.
+        if exc.ctx:
+            click.echo(exc.ctx.get_help(), err=True)
+        click.echo(f"\nError: {exc.format_message()}", err=True)
         sys.exit(2)
     except click.exceptions.Exit as exc:
         sys.exit(exc.code)
