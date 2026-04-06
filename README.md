@@ -63,21 +63,24 @@ webcli health
 
 **需要隔离环境时**（操作不同账号、不带登录态），手动启动第二个 Chrome：
 
-**macOS**（GUI 应用启动后自动后台，不会阻塞）：
 ```bash
+# macOS
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   --remote-debugging-port=9223 \
-  --user-data-dir="/tmp/chrome-9223" \
+  --user-data-dir="/tmp/chrome" \
   --no-first-run --no-default-browser-check
+  
+# Windows
+start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" ^
+--remote-debugging-port=9223 ^
+--user-data-dir="%TEMP%\chrome" ^
+--no-first-run --no-default-browser-check 
+
+# Linux
+google-chrome --headless=new --remote-debugging-port=9223 \
+  --user-data-dir=/tmp/chrome-9223 --no-first-run &
 ```
 
-**Windows**（用 `start` 后台启动）：
-```cmd
-start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" ^
-  --remote-debugging-port=9223 ^
-  --user-data-dir="%TEMP%\chrome-9223" ^
-  --no-first-run --no-default-browser-check
-```
 
 ```bash
 # 启动第二个 Proxy 连接隔离 Chrome
@@ -87,23 +90,6 @@ python browser_cdp/cdp_proxy.py --port 3457 --chrome-port 9223 &
 CDP_PROXY_PORT=3457 webcli new https://example.com
 ```
 
-### Linux 无界面环境
-
-Linux 服务器没有"日常 Chrome"，无需区分登录态与隔离环境。直接启动一个 headless Chrome，Proxy 自动探测，`webcli` 无需任何额外端口配置：
-
-```bash
-# headless 模式会阻塞前台，必须加 & 后台运行
-google-chrome --headless=new --remote-debugging-port=9223 \
-  --user-data-dir=/tmp/chrome-9223 --no-first-run &
-
-# Docker 环境（需额外参数）
-google-chrome --headless=new --remote-debugging-port=9223 \
-  --no-sandbox --disable-dev-shm-usage \
-  --user-data-dir="$HOME/.config/google-chrome" --no-first-run &
-
-# 启动后直接使用，无需指定任何端口
-webcli health
-```
 
 | | macOS 默认 | macOS 隔离实例 | Linux |
 |--|-----------|--------------|-------|

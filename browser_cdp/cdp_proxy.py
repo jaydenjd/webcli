@@ -469,6 +469,31 @@ async def handle_health(request: aiohttp_web.Request) -> aiohttp_web.Response:
         "chromePort": chrome_port
     })
 
+async def handle_browser(request: aiohttp_web.Request) -> aiohttp_web.Response:
+    """Check Chrome status and provide launch instructions if not running."""
+    discovered = await discover_chrome_port()
+    if discovered:
+        ws_url = get_websocket_url(discovered["port"], discovered["ws_path"])
+        return aiohttp_web.json_response({
+            "status": "running",
+            "port": discovered["port"],
+            "wsPath": discovered["ws_path"],
+            "wsUrl": ws_url,
+            "message": "Chrome is running with remote debugging enabled."
+        })
+    else:
+        return aiohttp_web.json_response({
+            "status": "not_running",
+            "message": "Chrome is not running with remote debugging port.",
+            "instructions": [
+                "Option 1: open Chrome",
+                "Option 2: Enable remote debugging in an existing Chrome:",
+                "  1. Open chrome://inspect/#remote-debugging",
+                "  2. Click 'Show all' and enable 'Discover network targets'",
+                "  3. Note the port number shown"
+            ]
+        }, status=404)
+
 
 async def handle_targets(request: aiohttp_web.Request) -> aiohttp_web.Response:
     """List all browser targets. Optional ?type= filter (e.g. page, worker)."""
@@ -1925,6 +1950,7 @@ async def main() -> None:
     # Create app
     app = aiohttp_web.Application()
     app.router.add_get("/health", handle_health)
+    app.router.add_get("/browser", handle_browser)
     app.router.add_get("/targets", handle_targets)
     app.router.add_get("/new", handle_new)
     app.router.add_get("/close", handle_close)

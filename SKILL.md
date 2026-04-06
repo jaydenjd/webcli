@@ -44,7 +44,7 @@ check-deps
 ```bash
 # 启动隔离 Chrome（macOS)
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
-  --remote-debugging-port=9223 --user-data-dir="/tmp/chrome-9223" \
+  --remote-debugging-port=9223 --user-data-dir="/tmp/chrome" \
   --no-first-run --no-default-browser-check
 
 # 启动隔离 Chrome（Linux / Docker）
@@ -53,7 +53,7 @@ google-chrome --headless=new --remote-debugging-port=9223 \
   --no-sandbox --disable-dev-shm-usage &   # Docker 需加后两个参数
   
 # 启动隔离 Chrome（Windows）
-chrome.exe --remote-debugging-port=9223 --user-data-dir="/tmp/chrome-9223"
+chrome.exe --remote-debugging-port=9223 --user-data-dir="/tmp/chrome"
 
 # 启动第二个 Proxy
 python3 <skill目录>/browser_cdp/cdp_proxy.py --port 3457 --chrome-port 9223 &

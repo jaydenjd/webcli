@@ -61,19 +61,28 @@ def _do_request(req: urllib.request.Request, timeout_seconds: float, retries: in
                 raise RuntimeError(f"Bad request: {error_msg}") from exc
             if exc.code == 404:
                 raise RuntimeError(f"Not found: {error_msg}") from exc
-            last_error = RuntimeError(
-                f"HTTP {exc.code}: {error_msg}"
-                if exc.code not in (500, 503, 504)
-                else f"{'Proxy internal error' if exc.code == 500 else 'Proxy/Chrome not ready'}: {error_msg}"
-            )
-            if exc.code not in (500, 503, 504):
-                raise last_error from exc
-            if attempt < retries:
-                click.echo(f"[retry {attempt + 1}/{retries}] transient {exc.code}, retrying…", err=True)
+            if exc.code in (500, 503, 504):
+                # Check if this is a Chrome not running error
+                if "Chrome" in error_msg or "remote debugging" in error_msg.lower():
+                    raise RuntimeError(
+                        f"Chrome 未运行。请手动打开浏览器\n\n"
+                    ) from exc
+                # For 500 errors without retries, provide a friendly error message
+                if retries == 0:
+                    raise RuntimeError(
+                        f"Chrome 未运行。请手动打开浏览器\n\n"
+                    ) from exc
+                last_error = RuntimeError(
+                    f"{'Proxy internal error' if exc.code == 500 else 'Proxy/Chrome not ready'}: {error_msg}"
+                )
+                if attempt < retries:
+                    click.echo(f"[retry {attempt + 1}/{retries}] transient {exc.code}, retrying…", err=True)
+            else:
+                raise RuntimeError(f"HTTP {exc.code}: {error_msg}") from exc
         except urllib.error.URLError as exc:
-            raise RuntimeError(f"Cannot reach proxy (is it running?): {exc.reason}") from exc
+            raise RuntimeError(f"无法连接到 Proxy（是否正在运行？）: {exc.reason}") from exc
         except TimeoutError as exc:
-            raise RuntimeError(f"Request timed out after {timeout_seconds:.0f}s") from exc
+            raise RuntimeError(f"请求超时（{timeout_seconds:.0f}秒）") from exc
     raise last_error  # type: ignore[misc]
 
 
@@ -244,6 +253,19 @@ def cli(ctx: click.Context):
 
 
 # ─── Tab management ───────────────────────────────────────────────────────────
+
+@cli.command()
+def browser():
+    """检查 Chrome 状态，如果未运行则显示启动说明。"""
+    result = http_get("/browser")
+    if result.get("status") == "running":
+        print(json.dumps(result, indent=2))
+    else:
+        click.echo("Chrome 未运行（未启用远程调试端口）。", err=True)
+        click.echo("\n启动方式：", err=True)
+        for instr in result.get("instructions", []):
+            click.echo(f"  {instr}", err=True)
+        sys.exit(1)
 
 @cli.command()
 @click.option("--type", "target_type", default="", help="Filter by type (page, worker...).")
@@ -1341,6 +1363,10 @@ def main():
         sys.exit(exc.code)
     except click.Abort:
         click.echo("Aborted!", err=True)
+        sys.exit(1)
+    except RuntimeError as exc:
+        # Show friendly error message without traceback
+        click.echo(f"\nError: {exc}", err=True)
         sys.exit(1)
 
 
