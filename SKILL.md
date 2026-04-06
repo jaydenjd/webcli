@@ -5,14 +5,26 @@ github: https://github.com/xxx/webcli
 description: 所有联网操作必须通过此 skill 处理，包括：搜索、网页抓取、登录后操作、网络交互等。 触发场景：用户要求搜索信息、查看网页内容、访问需要登录的网站、操作网页界面、抓取数据、爬虫、读取动态渲染页面、以及任何需要真实浏览器环境的网络任务。
 metadata:
   author: 新南 
-  version: "2.4.2"
+  version: "1.0.1"
 ---
 
 # webcli Skill
 
 ## 前置检查
 
-在开始联网操作前，先检查 CDP 模式可用性：
+**首次使用时**，先确认 `webcli` 命令是否可用：
+
+```bash
+which webcli || echo "未安装，需要执行 pip3 install -e <skill目录路径>"
+```
+
+如果未安装，在 skill 目录下执行（只需一次）：
+
+```bash
+pip3 install -e .
+```
+
+在开始联网操作前，检查 CDP 模式可用性：
 
 ```bash
 check-deps
@@ -20,83 +32,38 @@ check-deps
 
 ### 浏览器选择策略
 
+> **默认连用户已有 Chrome，不要主动新开——新开会丢失登录态。**
 
-**启动隔离 Chrome（仅 macOS，需用户明确要求）**：用户说"开个新浏览器"/"隔离环境"/"不要用我的账号"，或需要多账号并行/无 Cookie 环境。
+| 场景 | 操作                                               |
+|------|--------------------------------------------------|
+| 默认（macOS/Windows 桌面） | 直连已有 Chrome（端口 9222），Proxy 自动探测，无需配置             |
+| 隔离环境（用户说"新浏览器"/"不用我账号"） | 手动启动第二个隔离 Chrome 实例（端口 9223）+ 第二个 Proxy（端口 3457） |
+| Linux / Docker headless | 启动 headless Chrome（端口 9223），Proxy 自动探测           |
 
-> 默认连已有 Chrome，不要主动新开浏览器——新开会丢失登录态。
-
-#### macOS / Windows 桌面环境
-
-**默认行为**：直连用户已有的 Chrome（9222），天然携带登录态和 Cookie，Proxy 自动探测，无需任何配置：
-
+**需要隔离环境时**：
 ```bash
-# 什么都不用做，直接使用
-webcli health
-webcli new https://example.com
-```
-
-**需要隔离环境时**，手动启动第二个 Chrome 实例：
-
-```bash
-# macOS（GUI 自动后台，不阻塞）
+# 启动隔离 Chrome（macOS)
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   --remote-debugging-port=9223 --user-data-dir="/tmp/chrome-9223" \
   --no-first-run --no-default-browser-check
 
-# Windows（需用 start 后台启动，否则阻塞）
-start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" ^
-  --remote-debugging-port=9223 --user-data-dir="%TEMP%\chrome-9223" ^
-  --no-first-run --no-default-browser-check
-```
-
-> `--no-first-run`：已有 Chrome 运行时不加此参数会被转发给已有实例而不新开进程。
-
-#### Linux 无界面环境（headless 模式）
-
-直接用 **9223** 端口启动 Chrome，Proxy 自动探测，无需额外配置：
-
-```bash
-# 普通 headless（必须加 & 后台运行）
+# 启动隔离 Chrome（Linux / Docker）
 google-chrome --headless=new --remote-debugging-port=9223 \
-  --user-data-dir="/tmp/chrome-9223" --no-first-run &
+  --user-data-dir="/tmp/chrome-9223" --no-first-run \
+  --no-sandbox --disable-dev-shm-usage &   # Docker 需加后两个参数
+  
+# 启动隔离 Chrome（Windows）
+chrome.exe --remote-debugging-port=9223 --user-data-dir="/tmp/chrome-9223"
 
-# Docker 环境（需额外参数）
-google-chrome --headless=new --remote-debugging-port=9223 \
-  --no-sandbox --disable-dev-shm-usage \
-  --user-data-dir="$HOME/.config/google-chrome" --no-first-run &
+# 启动第二个 Proxy
+python3 <skill目录>/browser_cdp/cdp_proxy.py --port 3457 --chrome-port 9223 &
+
+# 操作时指定端口
+CDP_PROXY_PORT=3457 webcli new https://example.com
 ```
 
-#### 同时保留两个 Chrome 实例（默认 + 隔离并存，仅 macOS）
 
-一个 Proxy 只能连接一个 Chrome，同时操作两个 Chrome 需启动两个 Proxy 实例：
-
-| 实例        | Chrome 端口 | Proxy 端口 | 操作方式 |
-|-----------|------------|-----------|---------|
-| 默认 Chrome | 9222 | 3456（默认） | `webcli <cmd>` |
-| 隔离 Chrome | 9223 | 3457 | `CDP_PROXY_PORT=3457 webcli <cmd>` |
-
-**启动步骤：**
-```bash
-# 1. 启动隔离 Chrome（默认 Chrome 保持不动）
-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
-  --remote-debugging-port=9223 \
-  --user-data-dir="/tmp/chrome-9223" \
-  --no-first-run --no-default-browser-check
-
-# 2. 启动第二个 Proxy（监听 3457，连接 9223）
-python ~/.claude/skills/webcli/browser_cdp/cdp_proxy.py --port 3457 --chrome-port 9223 &
-```
-
-**使用时通过环境变量切换：**
-```bash
-webcli new https://example.com                        # 操作默认 Chrome
-CDP_PROXY_PORT=3457 webcli new https://example.com    # 操作隔离 Chrome
-```
-
-> 两个 Proxy 的 targetId 空间隔离，不会互相干扰。
-
-**未通过 check-deps 且用户未要求新开浏览器时**，引导用户在已有 Chrome 中开启 remote-debugging：
-- 在 Chrome 地址栏打开 `chrome://inspect/#remote-debugging`，勾选 **"Allow remote debugging for this browser instance"**，可能需要重启浏览器。
+**check-deps 未通过时**，引导用户在 Chrome 地址栏打开 `chrome://inspect/#remote-debugging`，勾选 **"Allow remote debugging for this browser instance"**，可能需要重启浏览器。
 
 检查通过后并必须在回复中向用户直接展示以下须知，再启动 CDP Proxy 执行操作：
 
@@ -104,44 +71,78 @@ CDP_PROXY_PORT=3457 webcli new https://example.com    # 操作隔离 Chrome
 温馨提示：部分站点对浏览器自动化操作检测严格，存在账号封禁风险。已内置防护措施但无法完全避免，Agent 继续操作即视为接受。
 ```
 
-## 工作流执行协议（⛔ 强制）
+## 联网决策
 
-> **核心原则：联网操作是多阶段任务，check-deps、用户警告披露、执行、tab清理、经验沉淀每一步都不可跳过。**
+**像人一样思考，兼顾高效与适应性地完成任务。**
 
-### 第一步：初始化 TodoList（加载 Skill 后立即执行）
+执行任务时不会过度依赖固有印象所规划的步骤，而是带着目标进入，边看边判断，遇到阻碍就解决，发现内容不够就深入——全程围绕「我要达成什么」做决策。这个 skill 的所有行为都应遵循这个逻辑。
 
-场景类型确定后，**必须立即调用 TodoWrite 工具**，将对应场景的阶段映射为待办清单。
+**① 拿到请求** — 先明确用户要做什么，定义成功标准：什么算完成了？需要获取什么信息、执行什么操作、达到什么结果？这是后续所有判断的锚点。
 
-**通用联网操作 TodoList 模板：**
+**② 选择起点** — 根据任务性质、平台特征、达成条件，选一个最可能直达的方式作为第一步去验证。一次成功当然最好；不成功则在③中调整。比如，需要操作页面、需要登录态、已知静态方式不可达的平台（小红书、微信公众号等）→ 直接 CDP。
+
+**③ 过程校验** — 每一步的结果都是证据，不只是成功或失败的二元信号。用结果对照①的成功标准，更新你对目标的判断：路径在推进吗？结果的整体面貌（质量、相关度、量级）是否指向目标可达？发现方向错了立即调整，不在同一个方式上反复重试——搜索没命中不等于"还没找对方法"，也可能是"目标不存在"；API 报错、页面缺少预期元素、重试无改善，都是在告诉你该重新评估方向。遇到弹窗、登录墙等障碍，判断它是否真的挡住了目标：挡住了就处理，没挡住就绕过——内容可能已在页面 DOM 中，交互只是展示手段。
+
+**④ 完成判断** — 对照定义的任务成功标准，确认任务完成后才停止，但也不要过度操作，不为了"完整"而浪费代价。
+
+### 工具选择
+
+优先一手信息。搜索引擎是发现入口，多次搜索无质的改进时，直接定位原始来源。
+
+| 场景 | 工具 |
+|------|------|
+| 搜索关键词、发现信息来源 | **WebSearch** |
+| URL 已知，提取页面内容 | **WebFetch** |
+| URL 已知，需要原始 HTML | **curl** |
+| 需要登录态 / 交互操作 / 动态渲染 / 非公开平台 | **浏览器 CDP** |
+
+> WebSearch / WebFetch / curl 均不处理登录态，CDP 不要求 URL 已知，可从任意入口出发。
+
+**Jina**（可选）：`r.jina.ai/<url>` 将网页转为 Markdown，限 20 RPM。适合文章/文档；对数据面板、商品页等结构化页面可能提取错误区块。
+
+### 信息核实
+
+核实目标是**一手来源**，搜索引擎只用于定位，不能直接证明真伪，找到来源后直接访问原文。
+
+| 信息类型 | 一手来源 |
+|----------|---------|
+| 政策/法规 | 发布机构官网 |
+| 企业公告 | 公司官方新闻页 |
+| 学术声明 | 原始论文/机构官网 |
+| 工具能力/用法 | 官方文档、源码 |
+
+找不到官网时，权威媒体原创报道可作次级依据，需向用户说明来源和转述误差可能。
+
+## 工作流执行协议
+
+联网操作是多阶段任务，每个阶段都不可跳过。
+
+### 第一步：初始化 TodoList
+
+确定场景后，**立即调用 TodoWrite 工具**创建待办清单，每完成一个阶段必须更新状态。
+
+**通用联网操作：**
 ```
-1. [ ] 前置检查 — check-deps 确认 CDP 环境可用
-2. [ ] 用户告知 — 展示账号封禁风险提示
-3. [ ] 任务执行 — 按目标操作（导航/抓包/交互/数据提取）
-4. [ ] 清理收尾 — 关闭自己创建的 tab，不影响用户原有 tab
-5. [ ] 经验沉淀 — 如有新发现（API/反爬/登录/操作），写入经验库
+1. [ ] 任务执行 — 按目标操作（导航/抓包/交互/数据提取）
+2. [ ] 清理收尾 — 关闭自己创建的 tab，不影响用户原有 tab
+3. [ ] 经验沉淀 — 如有新发现（API/反爬/登录/操作），写入经验库
 ```
 
-**数据抓取场景 TodoList 模板：**
+**数据抓取场景：**
 ```
-1. [ ] 前置检查 — check-deps 确认 CDP 环境可用
-2. [ ] 用户告知 — 展示账号封禁风险提示
-3. [ ] 检查站点经验 — webcli exp list {domain}，有则直接复用
-4. [ ] 页面分析 — open-monitored / network-start 监控接口
-5. [ ] 数据提取 — 优先 API 直接调用，其次 DOM 提取
-6. [ ] 清理收尾 — 关闭 tab
-7. [ ] 经验沉淀 — 发现新接口或突破反爬，必须写入经验库
+1. [ ] 检查站点经验 — webcli exp list {domain}，有则直接复用
+2. [ ] 页面分析 — open-monitored / network-start 监控接口
+3. [ ] 数据提取 — 优先 API 直接调用，其次 DOM 提取
+4. [ ] 清理收尾 — 关闭 tab
+5. [ ] 经验沉淀 — 发现新接口或突破反爬，必须写入经验库
 ```
-
-> 每完成一个阶段必须更新状态，不得跳过任何步骤。
 
 ### 第二步：门禁规则
 
 | 门禁点 | 前置条件 | 放行标准 | 典型违规 |
 |--------|----------|----------|----------|
-| **检查→执行** | check-deps 通过 或 已引导用户开启 | CDP Proxy 可用 | 未检查 check-deps 就执行 webcli 命令 |
-| **检查→用户告知** | 检查通过 | ⛔ 风险提示已展示给用户 | 直接开始操作，不告知封禁风险 |
 | **执行→清理** | 任务目标达成 | 自己创建的 tab 已关闭 | 任务完成但不关 tab |
-| **清理→完成** | tab 已关闭 | ⛔ 经验沉淀检查已执行 | 发现了新接口但不沉淀经验 |
+| **清理→完成** | tab 已关闭 | 经验沉淀检查已执行 | 发现了新接口但不沉淀经验 |
 
 ### 第三步：经验沉淀（任务结束的必经步骤）
 
@@ -170,61 +171,25 @@ TodoList 标记「经验沉淀」为 completed
 任务正式结束
 ```
 
-## 浏览哲学
-
-**像人一样思考，带着目标进入，边看边判断，遇到阻碍就解决——全程围绕「我要达成什么」做决策。**
-
-**① 拿到请求** — 定义成功标准：什么算完成了？这是后续所有判断的锚点。
-
-**② 选择起点** — 选最可能直达的方式验证。需要登录态/操作页面/已知静态层无效的平台（小红书、微信公众号等）→ 直接 CDP。
-
-**③ 过程校验** — 每步结果都是证据。发现方向错了立即调整，不在同一方式上反复重试。遇到弹窗/登录墙，判断是否真的挡住目标——挡住才处理，没挡住就绕过。
-
-**④ 完成判断** — 对照成功标准确认完成后停止，不为"完整"而过度操作。
-
-## 联网工具选择
-
-一手信息优于二手信息。搜索引擎是信息发现入口，多次搜索无质的改进时，直接定位一手来源（官网、原始页面）。
-
-| 场景 | 工具 |
-|------|------|
-| 搜索摘要/关键词，发现信息来源 | **WebSearch** |
-| URL 已知，定向提取特定信息 | **WebFetch** |
-| URL 已知，需要原始 HTML 源码 | **curl** |
-| 非公开内容/静态层无效的平台（小红书、微信公众号等） | **浏览器 CDP** |
-| 需要登录态、交互操作、自由导航探索 | **浏览器 CDP** |
-
-浏览器 CDP 不要求 URL 已知，可从任意入口出发。WebSearch/WebFetch/curl 均不处理登录态。
-
-**Jina**（可选，节省 token）：`r.jina.ai/example.com`，将网页转为 Markdown，限 20 RPM。适合文章/博客/文档；对数据面板、商品页等非文章结构页面可能提取错误区块。
-
-进入浏览器层后，核心策略：
-
-- **了解页面结构**：优先 `webcli snapshot` 获取无障碍树；SPA 应用 snapshot 元素可能无文字内容，此时直接用 `webcli eval` 提取数据
-- **交互操作**：`webcli click` / `webcli find text "xxx" click` 点击、`webcli scroll` 滚动、`webcli eval` 填表提交
-- **读数据**：优先 `network-start` + 触发操作 + `network-requests` 拿 API 响应 JSON，比解析 DOM 更稳定。**注意：network 命令用连字符 `-` 不是下划线 `_`**。**⚠️ 时序关键**：`network-start` 必须在页面导航**前**执行。正确流程：`new about:blank` → `network-start` → `navigate` → `wait` → `network-requests`
-- **读图**：`webcli screenshot` 截图后，`read_file` 读取图片路径即可视觉分析
-- **批量翻页**：翻页优先用 `find role button click --name "页码"` 而非 `find text "页码" click`——后者可能命中非预期元素
-
-**SPA 数据提取**：用 `open-monitored` 一步完成"创建 tab + 启动网络监控 + 导航"，再用 `network-requests --type xhr,fetch` 找数据接口。详见 `references/network-analysis.md`。
-
-### 程序化操作与 GUI 交互
-
-- **程序化方式**（构造 URL、eval 操作 DOM）：速度快，但可能触发反爬
-- **GUI 交互**（点击按钮、填写输入框）：确定性最高，是程序化受阻时的兜底，也是观察站点实际行为的有效探测手段
-
-**站点内交互产生的链接天然携带完整上下文**，手动构造的 URL 可能缺失隐式参数导致被拦截。
-
 ## 浏览器 CDP 模式
 
 通过 CDP Proxy 直连用户日常 Chrome，天然携带登录态。所有操作在自己创建的后台 tab 中进行，完成后关闭，不影响用户已有 tab。
 
-### 安装与启动
+### 进入页面后的核心策略
 
-```bash
-pip3 install -e "$CLAUDE_SKILL_DIR"  # 安装一次即可
-check-deps                            # 检查 Chrome 端口，自动启动 Proxy
-```
+**了解页面结构**：优先 `webcli snapshot` 获取无障碍树；SPA 应用 snapshot 可能无文字内容，此时用 `webcli eval` 直接提取数据。
+
+**读数据（优先）**：`network-start` + 触发操作 + `network-requests` 拿 API 响应 JSON，比解析 DOM 更稳定。
+- ⚠️ **时序关键**：`network-start` 必须在页面导航**前**执行
+- 正确流程：`new about:blank` → `network-start` → `navigate` → `wait` → `network-requests`
+- **注意**：network 命令用连字符 `-` 不是下划线 `_`
+- SPA 一步到位：`open-monitored <url>` = 创建 tab + 启动监控 + 导航，再用 `network-requests --type xhr,fetch` 找接口
+
+**读图**：`webcli screenshot` 截图后，`read_file` 读取图片路径即可视觉分析；`webcli eval` 从 DOM 直接拿图片 URL 比全页截图精准。
+
+**翻页**：优先 `find role button click --name "页码"` 而非 `find text "页码" click`——后者可能命中非预期元素。
+
+**懒加载**：`webcli scroll bottom` 触发懒加载，提取图片 URL 前若未滚动，部分图片可能尚未加载。
 
 ### CLI 命令参考
 
@@ -233,9 +198,13 @@ webcli --help / webcli <command> --help   # 查看命令列表/详细用法
 
 webcli targets                            # 列出已打开的 tab
 TARGET=$(webcli new https://example.com --id-only)  # 新建 tab
+webcli open-monitored https://example.com # 新建 tab + 启动网络监控（SPA 首选）
 webcli eval $TARGET "document.title"      # 执行 JS（最常用）
+webcli snapshot $TARGET                   # 获取无障碍树（了解页面结构）
 webcli screenshot $TARGET ./shot.png      # 截图
+webcli scroll $TARGET bottom              # 滚动到底部（触发懒加载）
 webcli click $TARGET "button.submit"      # 点击元素
+webcli navigate $TARGET https://url       # 在当前 tab 导航
 webcli close $TARGET                      # 关闭 tab
 ```
 
@@ -274,17 +243,6 @@ webcli scripts-source $TARGET <scriptId> -o sign.js  # 导出源码分析
 webcli close $TARGET
 ```
 
-### 页面内导航
-
-- **`webcli click`**：当前 tab 内点击，适合连续操作（展开、翻页、进入详情）
-- **`webcli new` + 完整 URL**：新 tab 打开，适合同时访问多个页面
-
-提取 URL 时保留完整地址，不要裁剪参数（很多网站链接含会话 token）。
-
-### 媒体资源提取
-
-用 `webcli eval` 从 DOM 直接拿图片 URL，比全页截图精准得多。
-
 ### 元素定位与点击
 
 `webcli click` 使用标准 CSS 选择器，**不支持** `:contains()` 等 jQuery 非标准伪类。按文字定位时优先用语义化命令：
@@ -310,15 +268,10 @@ webcli wait <targetId> --fn "window.loaded" # 等待 JS 表达式为真
 
 - 轮播非当前帧、折叠区块、懒加载占位元素等已加载但不可见的内容存在于 DOM 中，以数据结构为单位思考可直接触达
 - Shadow DOM / iframe 是选择器边界，`webcli eval` 递归遍历可一次穿透所有层级
-- `webcli scroll` 到底部触发懒加载，提取图片 URL 前若未滚动，部分图片可能尚未加载
 - 公开媒体资源可直接下载；需要登录态的资源才需要在浏览器内 `navigate` + `screenshot`
 - 密集批量 `webcli new` 可能触发反爬风控
 - 平台返回"内容不存在"不一定是真实状态，也可能是 URL 缺参数或触发了反爬
 - **SPA（React/Vue 等）翻页/筛选/Tab 切换不能靠修改 URL 参数触发**，必须点击 UI 元素或直接调用数据接口
-
-### 视频内容获取
-
-`webcli eval` 操控 `<video>` 元素（获取时长、seek、播放/暂停），配合 `webcli screenshot` 采帧，可对视频内容进行离散采样分析。
 
 ### 登录判断
 
@@ -441,24 +394,16 @@ Proxy 持续运行，不建议主动停止——重启后需要在 Chrome 中重
 | 每个子任务量足够大（多页抓取） | 简单单页查询，分治开销大于收益 |
 | 需要 CDP 或长时间运行 | 几次 WebSearch / Jina 就能完成 |
 
-## 信息核实类任务
-
-核实目标是**一手来源**。搜索引擎是定位工具，不能用于直接证明真伪，找到来源后直接访问原文。
-
-| 信息类型 | 一手来源 |
-|----------|---------|
-| 政策/法规 | 发布机构官网 |
-| 企业公告 | 公司官方新闻页 |
-| 学术声明 | 原始论文/机构官网 |
-| 工具能力/用法 | 官方文档、源码 |
-
-找不到官网时，权威媒体原创报道可作次级依据，需向用户说明来源和转述误差可能。
-
 ## 站点经验
 
-已有经验的站点：!`ls "${CLAUDE_SKILL_DIR:-\.}/references/site-patterns/" 2>/dev/null | grep '\.md$' | sed 's/\.md$//' | tr '\n' ',' | sed 's/,$//' || echo '暂无'`
+确定目标网站后，先查询已有站点经验：
 
-确定目标网站后，执行 `match-site <domain或网站名>` 自动匹配经验内容。列表中有匹配站点时**必须读取**，获取平台特征、有效模式、已知陷阱。CDP 操作完成后，如发现值得记录的新站点/新模式，主动写入经验文件（只写验证过的事实）。
+```bash
+webcli exp list {domain}        # 查看该站点所有经验
+webcli exp action {domain} {name}  # 读取具体操作经验
+```
+
+有匹配经验时**必须读取**，获取平台特征、有效模式、已知陷阱，直接复用。CDP 操作完成后，如发现值得记录的新站点/新模式，主动写入经验文件（只写验证过的事实）。
 
 文件格式：
 ```markdown
@@ -468,23 +413,24 @@ aliases: [示例, Example]
 updated: 2026-03-19
 ---
 ## 平台特征
-## 有效模式
-## 已知陷阱
-## 数据来源说明
 - **渲染方式**: SSR 直出 / JS 异步 / SSR + JS 混合 / 必须浏览器
-- **验证结论**: 验证了什么、如何验证的、验证结果
+
+## 有效模式
+
+## 已知陷阱
+
+## 验证结论
+- 验证了什么、如何验证的、验证结果
 ```
 
-`status: verified` 的经验直接执行，不做额外验证；未标注或 `unstable` 的当作"可能有效的提示"。
+`verified` 的经验直接执行，不做额外验证；`unstable` 或未标注的当作"可能有效的提示"，执行前先验证。
 
 ## References 索引
 
 | 文件 | 何时加载 |
 |------|---------|
-| `references/cdp-api.md` | 需要 CDP API 详细参考、JS 提取模式、错误处理时 |
 | `references/network-analysis.md` | 需要分析页面接口、抓包、查看请求参数/响应数据、研究加密参数时 |
-| `references/site-patterns/{domain}.md` | 确定目标网站后，读取对应站点经验 |
-| `references/experience.md` | 需要了解经验沉淀规范、格式要求、CLI 使用方式时 |
+| `references/experience.md` | 任务完成后执行经验沉淀、或需要了解经验格式规范时 |
 
 ## 经验自主沉淀（webcli exp）
 

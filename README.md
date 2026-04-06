@@ -1,38 +1,51 @@
-## 背景
-Claude Code 原本有 WebSearch、WebFetch，但缺少调度策略和浏览器自动化能力。这个 skill 补上的是：**联网策略 + CDP 浏览器操作 + 站点经验积累**。
+# webcli — 给 AI Agent 的浏览器操作 Skill
+
+让 AI Agent 直连你的 Chrome，完成搜索、抓数据、自动化操作等一切联网任务。
 
 ---
 
+## 这是什么
+
+Agent 原生有 WebSearch、WebFetch，但面对需要登录态、动态渲染、页面交互的场景就无能为力了。这个 skill 补上的是：**联网决策 + CDP 浏览器操作 + 站点经验积累**。
+
+- **联网决策**：什么场景用 WebSearch、WebFetch、curl、还是浏览器 CDP，有明确决策规则，Agent 自动选择最优路径
+- **CDP 浏览器操作**：直连你日常用的 Chrome，天然携带登录态和 Cookie，支持点击、填表、抓包、截图等完整交互
+- **站点经验积累**：每次完成任务后自动沉淀经验，下次同类任务直接复用，越用越快
+
+> 本项目借鉴了 [eze-is/web-access](https://github.com/eze-is/web-access) 的核心思路，在此基础上做了以下改进：
+>
+> - **Python 实现，专用 CLI**：原项目用 Node.js + HTTP API（`curl localhost:3456/new?url=...`），本项目改为 Python 实现，提供 `webcli` 命令行工具，命令更自然、可读性更强
+> - **结构化经验管理**：原项目经验以 Markdown 文件存储，本项目新增 `webcli exp` 专用命令，支持按类型（api/login/action/anti-crawl/workflow）分类存储和查询，经验复用更精准
+> - **更丰富的命令集**：新增 `open-monitored`（一步开启网络监控）、`find`（按文字/角色定位元素）、`wait`（等待条件）、`scripts-*`（JS 源码捕获）等命令，覆盖更多自动化场景
+> - **无环境变量依赖**：原项目依赖 `$CLAUDE_SKILL_DIR` 环境变量，本项目通过 `pip install -e .` 安装后直接使用，环境更简单
+
+---
 
 ## 安装
 
-本地安装命令
 ```bash
+git clone https://github.com/jaydenjd/webcli ~/.claude/skills/webcli
+cd ~/.claude/skills/webcli
 pip3 install -e .
 ```
 
-**方式一：让 Claude 自动安装**
+> **注意**：`pip3 install -e .` 是必须执行的步骤，否则 `webcli` 命令不可用。
 
-```
-帮我安装这个 skill：https://github.com/xxx/webcli
-```
-
-**方式二：Plugin 安装**
+**更新**：拉取最新代码后重新安装即可；如果修改了 `cdp_proxy.py`，需要重启 Proxy：
 
 ```bash
-claude plugin marketplace add https://github.com/xxx/webcli
-claude plugin install webcli@webcli --scope user
+pkill -f "cdp_proxy"   # kill 后执行任意 webcli 命令会自动重新拉起
 ```
 
-**方式三：手动**
+**让 Agent 加载这个 skill**：安装完成后，在对话里告诉 Agent：
 
-```bash
-git clone https://github.com/xxx/webcli ~/.claude/skills/webcli
+```
+请加载 ~/.claude/skills/webcli/SKILL.md 并按照其中的指引完成任务
 ```
 
-## 前置配置（CDP 模式）
+## Chrome 配置
 
-> **设计说明**：macOS 用户有"日常 Chrome"（携带登录态和 Cookie），Proxy 直连即可；Linux 服务器没有日常 Chrome，需要手动启动 headless Chrome，但无需区分登录态与隔离环境，流程更简单。
+> macOS / Windows 用户直连日常 Chrome（携带登录态和 Cookie），一次性配置即可；Linux 服务器需手动启动 headless Chrome，流程更简单。
 
 ### macOS / Windows 桌面环境
 
@@ -136,48 +149,18 @@ webcli network-requests $TARGET --type xhr,fetch  # 查看请求列表
 webcli network-request $TARGET <requestId>        # 查看单个请求详情
 ```
 
-## 手动启动 CDP Proxy
 
-通常无需手动启动，`webcli` 会自动管理 Proxy 生命周期。但在需要精确控制端口（如双实例并存）时，可直接传参启动：
 
-```bash
-# 基本启动（默认端口 3456，自动探测 Chrome）
-python browser_cdp/cdp_proxy.py
+## 开始使用
 
-# 指定 Proxy 端口和 Chrome 端口
-python browser_cdp/cdp_proxy.py --port 3456 --chrome-port 9222
+安装并配置好 Chrome 后，在对话里加载 skill，然后直接说你想做什么：
 
-# 启动第二个 Proxy 连接另一个 Chrome 实例（后台运行）
-python browser_cdp/cdp_proxy.py --port 3457 --chrome-port 9223 &
+```
+请加载 ~/.claude/skills/webcli/SKILL.md 并按照其中的指引完成任务：
+帮我抓取 B站今天的热门视频榜单
 ```
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--port` | Proxy HTTP 监听端口 | `CDP_PROXY_PORT` 环境变量，或 `3456` |
-| `--chrome-port` | Chrome 远程调试端口 | `CDP_CHROME_PORT` 环境变量，或自动探测 |
-
-> 命令行参数优先级高于环境变量。
-
-## 更新 webcli
-
-```bash
-# kill 掉 Proxy 进程后，执行任意 webcli 命令会自动重新拉起
-pkill -f "cdp_proxy"
-```
-
-## ⚠️ 使用前提醒
-
-通过浏览器自动化操作社交平台（如小红书）存在账号被平台限流或封禁的风险。**强烈建议使用小号进行操作。**
-
-## 使用
-
-安装后直接让 Agent 执行联网任务，skill 自动接管：
-
-- "帮我搜索 xxx 最新进展"
-- "读一下这个页面：[URL]"
-- "去小红书搜索 xxx 的账号"
-- "帮我在创作者平台发一篇图文"
-- "同时调研这 5 个产品的官网，给我对比摘要"
+Agent 会自动判断用哪种方式完成任务（搜索、直接请求、还是打开浏览器操作），不需要你指定。
 
 ## 场景全景图
 
@@ -322,15 +305,26 @@ webcli eval $T "提取 CR 列表..."
 积累效应：经验越多 → 执行越快 → 覆盖场景越广
 ```
 
-## 设计哲学
+## 附录：手动启动 CDP Proxy
 
-> Skill = 哲学 + 技术事实，不是操作手册。讲清 tradeoff 让 AI 自己选，不替它推理。
+通常无需手动启动，`webcli` 会自动管理 Proxy 生命周期。仅在需要精确控制端口（如双实例并存）时使用：
 
-详见 [SKILL.md](./SKILL.md) 中的浏览哲学部分。
+```bash
+# 基本启动（默认端口 3456，自动探测 Chrome）
+python browser_cdp/cdp_proxy.py &
 
-## License
+# 指定 Proxy 端口和 Chrome 端口
+python browser_cdp/cdp_proxy.py --port 3456 --chrome-port 9222 &
 
+# 启动第二个 Proxy 连接另一个 Chrome 实例（后台运行）
+python browser_cdp/cdp_proxy.py --port 3457 --chrome-port 9223 &
+```
 
-## Star History
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--port` | Proxy HTTP 监听端口 | `CDP_PROXY_PORT` 环境变量，或 `3456` |
+| `--chrome-port` | Chrome 远程调试端口 | `CDP_CHROME_PORT` 环境变量，或自动探测 |
+
+> 命令行参数优先级高于环境变量。
 
 
