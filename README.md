@@ -340,9 +340,9 @@ python browser_cdp/cdp_proxy.py --port 3457 --chrome-port 9223 &
 
 
 
-### webcli 命令
+### webcli 命令大全
 ```bash
-webcli
+webcli    
 Usage: webcli [OPTIONS] COMMAND [ARGS]...
 
   webcli - Browser automation via Chrome DevTools Protocol
@@ -351,56 +351,56 @@ Options:
   --help  Show this message and exit.
 
 Commands:
-  back              Go back in history.
-  check             Check a checkbox.
-  click             Click an element using JS (el.click()).
-  click-at          Click an element using real mouse events (CDP...
-  close             Close a tab.
-  console           Get console messages intercepted from the page.
-  cookies           Get cookies for the current page.
-  cookies-clear     Clear all cookies in the browser.
-  cookies-set       Set a cookie.
-  dialog-accept     Accept a JavaScript dialog.
-  dialog-dismiss    Dismiss (cancel) a JavaScript dialog.
-  dialog-status     Check if a JavaScript dialog (alert/confirm/prompt)...
-  eval              Execute JavaScript.
+  back              后退到上一页。
+  check             勾选复选框。
+  click             点击元素（JS el.click() 方式）。
+  click-at          点击元素（CDP 真实鼠标事件，适用于滑块、Canvas 等）。
+  close             关闭标签页。
+  console           获取页面拦截到的 console 日志。
+  cookies           获取当前页面的 Cookie。
+  cookies-clear     清除浏览器中所有 Cookie。
+  cookies-set       设置 Cookie。
+  dialog-accept     确认（接受）JavaScript 对话框。prompt 对话框可传入文本。
+  dialog-dismiss    取消（关闭）JavaScript 对话框。
+  dialog-status     检查当前是否有 JavaScript 对话框（alert/confirm/prompt）弹出。
+  eval              执行 JavaScript。可直接传表达式、用 -f 指定文件，或通过 stdin 管道输入。
   exp               经验库管理（纯本地文件操作，不依赖 Proxy）。
-  fill              Clear and fill an input element (sets value directly,...
-  find              Find element by semantic locator and perform action.
-  focus             Focus an element.
-  forward           Go forward in history.
-  get               Get page or element property.
-  health            Health check — shows proxy status and Chrome connection.
-  hover             Hover over an element.
-  info              Get page information (title, URL, dimensions).
-  is                Check element state: visible, enabled, or checked.
-  navigate          Navigate to a URL.
-  network-clear     Clear all captured requests for a tab (keeps capture...
-  network-request   Get full detail of a single request including...
-  network-requests  List captured network requests with optional filters.
-  network-start     Start capturing network requests for a tab.
-  network-stop      Stop capturing network requests.
-  new               Create a new background tab and wait for it to load.
-  open-monitored    Create a new tab with network monitoring active from...
-  press             Press a key or key combination (e.g.
-  reload            Reload a tab and wait for it to finish loading.
-  screenshot        Take a screenshot.
-  scripts-enable    Enable Debugger domain to start capturing all scripts...
-  scripts-list      List captured scripts for a tab (chrome-extension...
-  scripts-source    Get source code for a specific script.
-  scroll            Scroll the page.
-  select            Select a dropdown option by value or visible text.
-  set-files         Set files for a file input (bypasses file dialog).
+  fill              清空并填写输入框（直接设置 value，触发 input/change 事件）。
+  find              按语义定位器查找元素并执行操作（无需知道 CSS 选择器）。
+  focus             聚焦到指定元素。
+  forward           前进到下一页。
+  get               获取页面或元素属性。
+  health            健康检查 — 显示 Proxy 状态和 Chrome 连接情况。
+  hover             悬停到指定元素上。
+  info              获取页面基本信息（标题、URL、尺寸）。
+  is                检查元素状态：visible（可见）、enabled（可用）、checked（已勾选）。
+  navigate          在当前标签页导航到指定 URL。
+  network-clear     清空已捕获的请求记录（保持捕获继续运行）。
+  network-request   获取单个请求的完整详情（含响应体）。
+  network-requests  列出捕获的网络请求，支持多种过滤条件。
+  network-start     开始捕获标签页的网络请求。
+  network-stop      停止捕获网络请求。
+  new               新建标签页并等待加载完成。
+  open-monitored    新建标签页并从第一个请求起开启网络监控。
+  press             按下按键或组合键（如 Enter、Tab、Control+a、Shift+ArrowDown）。
+  reload            刷新标签页并等待加载完成。
+  screenshot        截图。指定路径则保存到文件，否则输出二进制到 stdout。
+  scripts-enable    启用 Debugger 域，开始捕获标签页加载的所有脚本。
+  scripts-list      列出标签页已捕获的脚本（默认排除 chrome-extension 脚本）。
+  scripts-source    获取指定脚本的源码。
+  scroll            滚动页面。参数：top | bottom | up | down | <像素数>。
+  select            按值或可见文本选择下拉框选项。
+  set-files         为文件输入框设置文件（绕过系统文件选择对话框）。
   show-help         Show all available commands with usage summary.
-  snapshot          Get accessibility tree with element refs — best for...
-  storage           Get localStorage or sessionStorage value(s).
-  storage-clear     Clear localStorage or sessionStorage.
-  storage-set       Set a localStorage or sessionStorage value.
-  tabs              List all browser tabs (alias for targets).
-  targets           List all browser tabs.
-  type              Type text into an element character by character...
-  uncheck           Uncheck a checkbox.
-  wait              Wait for element, time (ms), text, or JS condition.
+  snapshot          获取无障碍树（含元素引用），AI 导航首选。
+  storage           获取 localStorage 或 sessionStorage 的值。
+  storage-clear     清空 localStorage 或 sessionStorage。
+  storage-set       设置 localStorage 或 sessionStorage 的值。
+  tabs              列出所有浏览器标签页（targets 的别名）。
+  targets           列出所有浏览器标签页。
+  type              逐字符输入文本（模拟真实键盘事件）。
+  uncheck           取消勾选复选框。
+  wait              等待元素、毫秒数、文本出现或 JS 条件成立。
 ```
 ### webcli exp 命令
 ```bash

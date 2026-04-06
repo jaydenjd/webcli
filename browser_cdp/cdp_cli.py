@@ -248,7 +248,7 @@ def cli(ctx: click.Context):
 @cli.command()
 @click.option("--type", "target_type", default="", help="Filter by type (page, worker...).")
 def targets(target_type: str):
-    """List all browser tabs."""
+    """列出所有浏览器标签页。"""
     path = "/targets"
     if target_type:
         path += f"?type={target_type}"
@@ -259,7 +259,7 @@ def targets(target_type: str):
 @cli.command()
 @click.option("--type", "target_type", default="", help="Filter by type (page, worker...).")
 def tabs(target_type: str):
-    """List all browser tabs (alias for targets)."""
+    """列出所有浏览器标签页（targets 的别名）。"""
     path = "/targets"
     if target_type:
         path += f"?type={target_type}"
@@ -272,9 +272,10 @@ def tabs(target_type: str):
 @click.argument("url")
 @click.option("--id-only", is_flag=True, default=False, help="Print only the targetId (useful for shell assignment).")
 def new(url: str, id_only: bool):
-    """Create a new background tab and wait for it to load.
+    """新建标签页并等待加载完成。
 
-    Examples:
+    \b
+    示例：
       webcli new https://example.com
       TARGET=$(webcli new https://example.com --id-only)
     """
@@ -293,16 +294,15 @@ def new(url: str, id_only: bool):
 @click.argument("url")
 @click.option("--id-only", is_flag=True, default=False, help="Print only the targetId (useful for shell assignment).")
 def open_monitored(url: str, id_only: bool):
-    """Create a new tab with network monitoring active from the first request.
+    """新建标签页并从第一个请求起开启网络监控。
 
-    Atomically performs: create blank tab → enable network capture → navigate.
-    This guarantees no initial XHR/fetch requests are missed due to timing.
+    原子操作：创建空白标签页 → 启动网络捕获 → 导航，确保不遗漏任何初始 XHR/fetch 请求。
 
     \b
-    Examples:
+    示例：
       webcli open-monitored https://yiche.com
       TARGET=$(webcli open-monitored https://yiche.com --id-only)
-      # Then immediately use: webcli network-requests $TARGET --type xhr,fetch
+      # 随后使用：webcli network-requests $TARGET --type xhr,fetch
     """
     encoded_url = urllib.parse.quote(url, safe=':/?#[]@!$&\'()*+,;=')
     result = http_get(f"/network/open-monitored?url={encoded_url}", timeout=30000)
@@ -317,7 +317,7 @@ def open_monitored(url: str, id_only: bool):
 @cli.command()
 @click.argument("target_id")
 def close(target_id: str):
-    """Close a tab."""
+    """关闭标签页。"""
     result = http_get(f"/close?target={target_id}")
     print(json.dumps(result, indent=2))
 
@@ -326,7 +326,7 @@ def close(target_id: str):
 @click.argument("target_id")
 @click.argument("url")
 def navigate(target_id: str, url: str):
-    """Navigate to a URL."""
+    """在当前标签页导航到指定 URL。"""
     encoded_url = urllib.parse.quote(url, safe=':/?#[]@!$&\'()*+,;=')
     result = http_get(f"/navigate?target={target_id}&url={encoded_url}")
     print(json.dumps(result, indent=2))
@@ -335,7 +335,7 @@ def navigate(target_id: str, url: str):
 @cli.command()
 @click.argument("target_id")
 def back(target_id: str):
-    """Go back in history."""
+    """后退到上一页。"""
     result = http_get(f"/back?target={target_id}")
     print(json.dumps(result, indent=2))
 
@@ -343,7 +343,7 @@ def back(target_id: str):
 @cli.command()
 @click.argument("target_id")
 def forward(target_id: str):
-    """Go forward in history."""
+    """前进到下一页。"""
     result = http_get(f"/forward?target={target_id}")
     print(json.dumps(result, indent=2))
 
@@ -351,7 +351,7 @@ def forward(target_id: str):
 @cli.command()
 @click.argument("target_id")
 def reload(target_id: str):
-    """Reload a tab and wait for it to finish loading."""
+    """刷新标签页并等待加载完成。"""
     result = http_get(f"/reload?target={target_id}")
     print(json.dumps(result, indent=2))
 
@@ -359,7 +359,7 @@ def reload(target_id: str):
 @cli.command()
 @click.argument("target_id")
 def info(target_id: str):
-    """Get page information (title, URL, dimensions)."""
+    """获取页面基本信息（标题、URL、尺寸）。"""
     result = http_get(f"/info?target={target_id}")
     print(json.dumps(result, indent=2))
 
@@ -371,9 +371,10 @@ def info(target_id: str):
 @click.argument("expression", required=False)
 @click.option("-f", "--file", "script_file", type=click.Path(exists=True), help="Read JS from file.")
 def eval(target_id: str, expression: Optional[str], script_file: Optional[str]):
-    """Execute JavaScript. Pass expression as argument, use -f for a file, or pipe via stdin.
+    """执行 JavaScript。可直接传表达式、用 -f 指定文件，或通过 stdin 管道输入。
 
-    Examples:
+    \b
+    示例：
       webcli eval <id> "document.title"
       webcli eval <id> -f script.js
       echo "document.title" | webcli eval <id>
@@ -396,7 +397,7 @@ def eval(target_id: str, expression: Optional[str], script_file: Optional[str]):
 @click.argument("target_id")
 @click.argument("selector")
 def click_element(target_id: str, selector: str):
-    """Click an element using JS (el.click())."""
+    """点击元素（JS el.click() 方式）。"""
     result = http_post(f"/click?target={target_id}", selector)
     print(json.dumps(result, indent=2))
 
@@ -405,7 +406,7 @@ def click_element(target_id: str, selector: str):
 @click.argument("target_id")
 @click.argument("selector")
 def click_at(target_id: str, selector: str):
-    """Click an element using real mouse events (CDP Input.dispatchMouseEvent)."""
+    """点击元素（CDP 真实鼠标事件，适用于滑块、Canvas 等）。"""
     result = http_post(f"/clickAt?target={target_id}", selector)
     print(json.dumps(result, indent=2))
 
@@ -414,7 +415,7 @@ def click_at(target_id: str, selector: str):
 @click.argument("target_id")
 @click.argument("selector")
 def hover(target_id: str, selector: str):
-    """Hover over an element."""
+    """悬停到指定元素上。"""
     result = http_post(f"/hover?target={target_id}", selector)
     print(json.dumps(result, indent=2))
 
@@ -423,7 +424,7 @@ def hover(target_id: str, selector: str):
 @click.argument("target_id")
 @click.argument("key")
 def press(target_id: str, key: str):
-    """Press a key or key combination (e.g. Enter, Tab, Control+a, Shift+ArrowDown)."""
+    """按下按键或组合键（如 Enter、Tab、Control+a、Shift+ArrowDown）。"""
     result = http_post(f"/press?target={target_id}", key)
     print(json.dumps(result, indent=2))
 
@@ -432,7 +433,7 @@ def press(target_id: str, key: str):
 @click.argument("target_id")
 @click.argument("selector")
 def focus(target_id: str, selector: str):
-    """Focus an element."""
+    """聚焦到指定元素。"""
     result = http_post(f"/focus?target={target_id}", selector)
     print(json.dumps(result, indent=2))
 
@@ -444,7 +445,7 @@ def focus(target_id: str, selector: str):
 @click.argument("selector")
 @click.argument("value")
 def fill(target_id: str, selector: str, value: str):
-    """Clear and fill an input element (sets value directly, fires input/change events)."""
+    """清空并填写输入框（直接设置 value，触发 input/change 事件）。"""
     result = http_post_json(f"/fill?target={target_id}", {"selector": selector, "value": value})
     print(json.dumps(result, indent=2))
 
@@ -454,7 +455,7 @@ def fill(target_id: str, selector: str, value: str):
 @click.argument("selector")
 @click.argument("text")
 def type(target_id: str, selector: str, text: str):
-    """Type text into an element character by character (simulates real keystrokes)."""
+    """逐字符输入文本（模拟真实键盘事件）。"""
     result = http_post_json(f"/type?target={target_id}", {"selector": selector, "text": text})
     print(json.dumps(result, indent=2))
 
@@ -464,7 +465,7 @@ def type(target_id: str, selector: str, text: str):
 @click.argument("selector")
 @click.argument("value")
 def select(target_id: str, selector: str, value: str):
-    """Select a dropdown option by value or visible text."""
+    """按值或可见文本选择下拉框选项。"""
     result = http_post_json(f"/select?target={target_id}", {"selector": selector, "value": value})
     print(json.dumps(result, indent=2))
 
@@ -473,7 +474,7 @@ def select(target_id: str, selector: str, value: str):
 @click.argument("target_id")
 @click.argument("selector")
 def check(target_id: str, selector: str):
-    """Check a checkbox."""
+    """勾选复选框。"""
     result = http_post(f"/check?target={target_id}&checked=true", selector)
     print(json.dumps(result, indent=2))
 
@@ -482,7 +483,7 @@ def check(target_id: str, selector: str):
 @click.argument("target_id")
 @click.argument("selector")
 def uncheck(target_id: str, selector: str):
-    """Uncheck a checkbox."""
+    """取消勾选复选框。"""
     result = http_post(f"/check?target={target_id}&checked=false", selector)
     print(json.dumps(result, indent=2))
 
@@ -492,7 +493,7 @@ def uncheck(target_id: str, selector: str):
 @click.argument("selector")
 @click.argument("files", nargs=-1)
 def set_files(target_id: str, selector: str, files: tuple):
-    """Set files for a file input (bypasses file dialog)."""
+    """为文件输入框设置文件（绕过系统文件选择对话框）。"""
     if not files:
         click.echo("Error: At least one file path is required", err=True)
         sys.exit(1)
@@ -506,7 +507,7 @@ def set_files(target_id: str, selector: str, files: tuple):
 @click.argument("target_id")
 @click.argument("param", required=False)
 def scroll(target_id: str, param: Optional[str]):
-    """Scroll the page. Param: top | bottom | up | down | <pixels>."""
+    """滚动页面。参数：top | bottom | up | down | <像素数>。"""
     path = f"/scroll?target={target_id}"
     if param:
         if param in ("top", "bottom", "up", "down"):
@@ -521,7 +522,7 @@ def scroll(target_id: str, param: Optional[str]):
 @click.argument("target_id")
 @click.argument("file_path", required=False)
 def screenshot(target_id: str, file_path: Optional[str]):
-    """Take a screenshot. Saves to file if path given, otherwise outputs binary to stdout."""
+    """截图。指定路径则保存到文件，否则输出二进制到 stdout。"""
     # Resolve relative paths against the caller's cwd, not the Proxy's working directory.
     abs_file_path = str(Path(file_path).resolve()) if file_path else None
     path = f"/screenshot?target={target_id}"
@@ -540,11 +541,12 @@ def screenshot(target_id: str, file_path: Optional[str]):
 @click.argument("target_id")
 @click.option("--depth", default=3, help="Max tree depth to render (default: 3). Use higher values for deeper inspection.")
 def snapshot(target_id: str, depth: int):
-    """Get accessibility tree with element refs — best for AI navigation.
+    """获取无障碍树（含元素引用），AI 导航首选。
 
-    Examples:
-      webcli snapshot <id>           # top 3 levels (default)
-      webcli snapshot <id> --depth 6 # deeper inspection
+    \b
+    示例：
+      webcli snapshot <id>            # 默认 3 层
+      webcli snapshot <id> --depth 6  # 更深层级
     """
     result = http_get(f"/snapshot?target={target_id}&depth={depth}", timeout=30000)
     print(result.get("snapshot", ""))
@@ -561,11 +563,11 @@ def snapshot(target_id: str, depth: int):
 @click.argument("selector", required=False)
 @click.option("--attr", "attr_name", default="", help="Attribute name (required when prop=attr).")
 def get(target_id: str, prop: str, selector: Optional[str], attr_name: str):
-    """Get page or element property.
+    """获取页面或元素属性。
 
     \b
-    Props without selector: title, url, text (body), html (full page)
-    Props with selector:    text, html, value, attr, count, box, styles
+    不需要选择器：title、url、text（body 文本）、html（完整页面）
+    需要选择器：  text、html、value、attr、count、box、styles
     """
     path = f"/get?target={target_id}&prop={prop}"
     if selector:
@@ -583,7 +585,7 @@ def get(target_id: str, prop: str, selector: Optional[str], attr_name: str):
 @cli.command()
 @click.argument("target_id")
 def console(target_id: str):
-    """Get console messages intercepted from the page."""
+    """获取页面拦截到的 console 日志。"""
     result = http_get(f"/console?target={target_id}")
     messages = result.get("messages", [])
     if not messages:
@@ -605,14 +607,14 @@ def console(target_id: str):
 @click.option("--state", default="visible", type=click.Choice(["visible", "hidden"]), help="Element state to wait for.")
 @click.option("--timeout", default=15000, help="Timeout in ms (default: 15000).")
 def wait(target_id: str, selector_or_ms: Optional[str], wait_text: str, wait_fn: str, state: str, timeout: int):
-    """Wait for element, time (ms), text, or JS condition.
+    """等待元素、毫秒数、文本出现或 JS 条件成立。
 
     \b
-    Examples:
-      webcli wait <id> "#submit-btn"           # wait for element visible
-      webcli wait <id> 2000                    # wait 2 seconds
-      webcli wait <id> --text "Loading done"   # wait for text on page
-      webcli wait <id> --fn "window.loaded"    # wait for JS condition
+    示例：
+      webcli wait <id> "#submit-btn"           # 等待元素可见
+      webcli wait <id> 2000                    # 等待 2 秒
+      webcli wait <id> --text "加载完成"        # 等待页面出现指定文本
+      webcli wait <id> --fn "window.loaded"    # 等待 JS 条件为真
     """
     path = f"/wait?target={target_id}&timeout={timeout}&state={state}"
     if selector_or_ms:
@@ -633,7 +635,7 @@ def wait(target_id: str, selector_or_ms: Optional[str], wait_text: str, wait_fn:
 @click.argument("check", type=click.Choice(["visible", "enabled", "checked"]))
 @click.argument("selector")
 def is_state(target_id: str, check: str, selector: str):
-    """Check element state: visible, enabled, or checked."""
+    """检查元素状态：visible（可见）、enabled（可用）、checked（已勾选）。"""
     path = f"/is?target={target_id}&check={check}&selector={urllib.parse.quote(selector, safe='')}"
     result = http_get(path)
     print(json.dumps(result, indent=2))
@@ -651,14 +653,14 @@ def is_state(target_id: str, check: str, selector: str):
 @click.option("--nth", default=0, help="Use nth match (0-indexed, default: 0).")
 @click.option("--fill-value", default="", help="Value to fill (required when action=fill).")
 def find(target_id: str, by: str, value: str, action: str, name_filter: str, exact: bool, nth: int, fill_value: str):
-    """Find element by semantic locator and perform action.
+    """按语义定位器查找元素并执行操作（无需知道 CSS 选择器）。
 
     \b
-    Examples:
-      webcli find <id> role button click --name "Submit"
-      webcli find <id> text "Sign In" click
-      webcli find <id> label "Email" fill --fill-value "user@example.com"
-      webcli find <id> placeholder "Search..." fill --fill-value "hello"
+    示例：
+      webcli find <id> role button click --name "提交"
+      webcli find <id> text "登录" click
+      webcli find <id> label "邮箱" fill --fill-value "user@example.com"
+      webcli find <id> placeholder "搜索..." fill --fill-value "hello"
       webcli find <id> testid "submit-btn" click
       webcli find <id> text "item" click --nth 2
     """
@@ -682,12 +684,12 @@ def find(target_id: str, by: str, value: str, action: str, name_filter: str, exa
 @click.option("--domain", default="", help="Filter cookies by domain (substring match).")
 @click.option("--url", "url_filter", default="", help="Get cookies for a specific URL.")
 def cookies(target_id: str, domain: str, url_filter: str):
-    """Get cookies for the current page.
+    """获取当前页面的 Cookie。
 
     \b
-    Examples:
-      webcli cookies <id>                          # all cookies for current page
-      webcli cookies <id> --domain .example.com    # filter by domain
+    示例：
+      webcli cookies <id>                          # 当前页面所有 Cookie
+      webcli cookies <id> --domain .example.com    # 按域名过滤
       webcli cookies <id> --url https://api.example.com/
     """
     path = f"/cookies?target={target_id}"
@@ -709,7 +711,7 @@ def cookies(target_id: str, domain: str, url_filter: str):
 @click.option("--http-only", is_flag=True, help="Set HttpOnly flag.")
 @click.option("--secure", is_flag=True, help="Set Secure flag.")
 def cookies_set(target_id: str, name: str, value: str, domain: str, cookie_path: str, http_only: bool, secure: bool):
-    """Set a cookie."""
+    """设置 Cookie。"""
     body: dict = {"name": name, "value": value, "path": cookie_path}
     if domain:
         body["domain"] = domain
@@ -724,7 +726,7 @@ def cookies_set(target_id: str, name: str, value: str, domain: str, cookie_path:
 @cli.command(name="cookies-clear")
 @click.argument("target_id")
 def cookies_clear(target_id: str):
-    """Clear all cookies in the browser."""
+    """清除浏览器中所有 Cookie。"""
     result = http_get(f"/cookies/clear?target={target_id}")
     print(json.dumps(result, indent=2))
 
@@ -736,13 +738,13 @@ def cookies_clear(target_id: str):
 @click.argument("key", required=False)
 @click.option("--type", "storage_type", default="local", type=click.Choice(["local", "session"]), help="Storage type (default: local).")
 def storage(target_id: str, key: Optional[str], storage_type: str):
-    """Get localStorage or sessionStorage value(s).
+    """获取 localStorage 或 sessionStorage 的值。
 
     \b
-    Examples:
-      webcli storage <id>                    # all localStorage items
-      webcli storage <id> --type session     # all sessionStorage items
-      webcli storage <id> token              # get specific key
+    示例：
+      webcli storage <id>                    # 所有 localStorage 条目
+      webcli storage <id> --type session     # 所有 sessionStorage 条目
+      webcli storage <id> token              # 获取指定 key 的值
     """
     path = f"/storage?target={target_id}&type={storage_type}"
     if key:
@@ -761,7 +763,7 @@ def storage(target_id: str, key: Optional[str], storage_type: str):
 @click.argument("value")
 @click.option("--type", "storage_type", default="local", type=click.Choice(["local", "session"]), help="Storage type (default: local).")
 def storage_set(target_id: str, key: str, value: str, storage_type: str):
-    """Set a localStorage or sessionStorage value."""
+    """设置 localStorage 或 sessionStorage 的值。"""
     result = http_post_json(f"/storage/set?target={target_id}&type={storage_type}", {"key": key, "value": value})
     print(json.dumps(result, indent=2))
 
@@ -770,7 +772,7 @@ def storage_set(target_id: str, key: str, value: str, storage_type: str):
 @click.argument("target_id")
 @click.option("--type", "storage_type", default="local", type=click.Choice(["local", "session"]), help="Storage type (default: local).")
 def storage_clear(target_id: str, storage_type: str):
-    """Clear localStorage or sessionStorage."""
+    """清空 localStorage 或 sessionStorage。"""
     result = http_get(f"/storage/clear?target={target_id}&type={storage_type}")
     print(json.dumps(result, indent=2))
 
@@ -780,7 +782,7 @@ def storage_clear(target_id: str, storage_type: str):
 @cli.command(name="dialog-status")
 @click.argument("target_id")
 def dialog_status(target_id: str):
-    """Check if a JavaScript dialog (alert/confirm/prompt) is currently open."""
+    """检查当前是否有 JavaScript 对话框（alert/confirm/prompt）弹出。"""
     result = http_get(f"/dialog/status?target={target_id}")
     print(json.dumps(result, indent=2))
 
@@ -789,7 +791,7 @@ def dialog_status(target_id: str):
 @click.argument("target_id")
 @click.argument("prompt_text", required=False, default="")
 def dialog_accept(target_id: str, prompt_text: str):
-    """Accept a JavaScript dialog. Optionally provide text for prompt dialogs."""
+    """确认（接受）JavaScript 对话框。prompt 对话框可传入文本。"""
     result = http_post(f"/dialog/accept?target={target_id}", prompt_text)
     print(json.dumps(result, indent=2))
 
@@ -797,7 +799,7 @@ def dialog_accept(target_id: str, prompt_text: str):
 @cli.command(name="dialog-dismiss")
 @click.argument("target_id")
 def dialog_dismiss(target_id: str):
-    """Dismiss (cancel) a JavaScript dialog."""
+    """取消（关闭）JavaScript 对话框。"""
     result = http_get(f"/dialog/dismiss?target={target_id}")
     print(json.dumps(result, indent=2))
 
@@ -807,7 +809,7 @@ def dialog_dismiss(target_id: str):
 @cli.command(name="network-start")
 @click.argument("target_id")
 def network_start(target_id: str):
-    """Start capturing network requests for a tab."""
+    """开始捕获标签页的网络请求。"""
     result = http_get(f"/network/start?target={target_id}")
     print(json.dumps(result, indent=2))
 
@@ -815,7 +817,7 @@ def network_start(target_id: str):
 @cli.command(name="network-stop")
 @click.argument("target_id")
 def network_stop(target_id: str):
-    """Stop capturing network requests."""
+    """停止捕获网络请求。"""
     result = http_get(f"/network/stop?target={target_id}")
     print(json.dumps(result, indent=2))
 
@@ -828,10 +830,10 @@ def network_stop(target_id: str):
 @click.option("--status", default="", help="Filter by status code (200, 2xx, 400-499).")
 @click.option("--limit", default=0, help="Return only the most recent N requests (0 = all).")
 def network_requests(target_id: str, url_filter: str, method: str, res_type: str, status: str, limit: int):
-    """List captured network requests with optional filters.
+    """列出捕获的网络请求，支持多种过滤条件。
 
     \b
-    Examples:
+    示例：
       webcli network-requests <id>
       webcli network-requests <id> --type xhr,fetch
       webcli network-requests <id> --filter /api/ --method POST
@@ -873,13 +875,13 @@ def network_requests(target_id: str, url_filter: str, method: str, res_type: str
 @click.argument("target_id")
 @click.argument("request_id")
 def network_request(target_id: str, request_id: str):
-    """Get full detail of a single request including response body.
+    """获取单个请求的完整详情（含响应体）。
 
     \b
-    Examples:
+    示例：
       webcli network-request <targetId> <requestId>
-      # Get targetId from: webcli targets
-      # Get requestId from: webcli network-requests <targetId>
+      # targetId 来自：webcli targets
+      # requestId 来自：webcli network-requests <targetId>
     """
     result = http_get(f"/network/request?target={target_id}&id={request_id}", timeout=30000)
     print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -889,7 +891,7 @@ def network_request(target_id: str, request_id: str):
 @cli.command(name="network-clear")
 @click.argument("target_id")
 def network_clear(target_id: str):
-    """Clear all captured requests for a tab (keeps capture running)."""
+    """清空已捕获的请求记录（保持捕获继续运行）。"""
     result = http_get(f"/network/clear?target={target_id}")
     print(json.dumps(result, indent=2))
 
@@ -899,12 +901,12 @@ def network_clear(target_id: str):
 @cli.command(name="scripts-enable")
 @click.argument("target_id")
 def scripts_enable(target_id: str):
-    """Enable Debugger domain to start capturing all scripts for a tab.
-    
-    This must be called before scripts will be automatically captured.
-    After enabling, all scripts loaded by the page will be tracked.
-    
-    Examples:
+    """启用 Debugger 域，开始捕获标签页加载的所有脚本。
+
+    必须在页面加载前调用，之后页面加载的所有脚本都会被追踪。
+
+    \b
+    示例：
       webcli scripts-enable <id>
       TARGET=$(webcli new https://example.com --id-only)
       webcli scripts-enable $TARGET
@@ -920,13 +922,14 @@ def scripts_enable(target_id: str):
 @click.option("--filter", "url_filter", default="", help="Filter scripts by URL keyword (case-insensitive).")
 @click.option("--all", "include_all", is_flag=True, default=False, help="Include chrome-extension:// scripts (not retrievable via scripts-source).")
 def scripts_list(target_id: str, url_filter: str, include_all: bool):
-    """List captured scripts for a tab (chrome-extension scripts excluded by default).
+    """列出标签页已捕获的脚本（默认排除 chrome-extension 脚本）。
 
-    Examples:
-      webcli scripts-list                             # all tabs, page scripts only
-      webcli scripts-list <targetId>                  # specific tab
-      webcli scripts-list <targetId> --filter chunk   # filter by URL keyword
-      webcli scripts-list <targetId> --all            # include chrome-extension scripts
+    \b
+    示例：
+      webcli scripts-list                             # 所有标签页的页面脚本
+      webcli scripts-list <targetId>                  # 指定标签页
+      webcli scripts-list <targetId> --filter chunk   # 按 URL 关键词过滤
+      webcli scripts-list <targetId> --all            # 包含 chrome-extension 脚本
     """
     params = []
     if target_id:
@@ -945,9 +948,10 @@ def scripts_list(target_id: str, url_filter: str, include_all: bool):
 @click.argument("script_id")
 @click.option("--output", "-o", default="", help="Save source to file instead of printing.")
 def scripts_source(target_id: str, script_id: str, output: str):
-    """Get source code for a specific script.
-    
-    Examples:
+    """获取指定脚本的源码。
+
+    \b
+    示例：
       webcli scripts-source <targetId> <scriptId>
       webcli scripts-source <targetId> <scriptId> -o script.js
     """
@@ -971,7 +975,7 @@ def scripts_source(target_id: str, script_id: str, output: str):
 
 @cli.command()
 def health():
-    """Health check — shows proxy status and Chrome connection."""
+    """健康检查 — 显示 Proxy 状态和 Chrome 连接情况。"""
     result = http_get("/health")
     print(json.dumps(result, indent=2))
 
