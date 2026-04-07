@@ -1014,17 +1014,17 @@ EXPERIENCE_DIR = Path(
 )
 
 # Site-scoped categories: experience/sites/{domain}/{category}/{name}.md
-# Cross-site categories: experience/{category}/{name}.md
-VALID_CATEGORIES = ("api", "login", "action", "anti-crawl", "workflow")
+# Global categories: experience/{category}/{name}.md
+VALID_CATEGORIES = ("api", "login", "action", "anti-crawl")
 SITE_SCOPED_CATEGORIES = ("api", "login", "action")
-GLOBAL_CATEGORIES = ("anti-crawl", "workflow")
+GLOBAL_CATEGORIES = ("anti-crawl",)
 
 
 def _exp_path(category: str, site: str, name: str) -> Path:
     """Resolve the markdown file path for a given experience entry.
 
     Site-scoped (api/login/action): experience/sites/{domain}/{category}/{name}.md
-    Global (anti-crawl/workflow):   experience/{category}/{name}.md
+    Global (anti-crawl):            experience/{category}/{name}.md
     """
     if category in SITE_SCOPED_CATEGORIES:
         return EXPERIENCE_DIR / "sites" / site / category / f"{name}.md"
@@ -1050,12 +1050,11 @@ def exp():
     分类说明（站点级）：
       api        接口数据获取经验（URL、参数、响应字段、加密破解）
       login      自动化登录经验（登录流程、Cookie 获取、验证码处理）
-      action     自动化操作经验（页面交互流程、表单提交、上传等）
+      action     自动化操作经验（页面交互流程、表单提交、上传、跨站点流程等）
 
     \b
     分类说明（全局级，不绑定站点）：
       anti-crawl 反爬对抗经验（跨站点通用，按反爬类型组织）
-      workflow   多步骤任务流程经验（可跨站点，按任务目标命名）
 
     \b
     示例：
@@ -1064,10 +1063,10 @@ def exp():
       webcli exp api yiche.com rank            # 查看易车销量榜接口经验
       webcli exp login taobao.com              # 查看淘宝登录经验
       webcli exp action xiaohongshu.com post   # 查看小红书发帖操作经验
+      webcli exp action sls query-log          # 查看查询 SLS 日志的流程经验
       webcli exp anti-crawl cloudflare         # 查看 Cloudflare 对抗经验
-      webcli exp workflow query-sls-log        # 查看查询 SLS 日志的流程经验
       webcli exp save api yiche.com rank       # 从 stdin 保存/更新站点级经验
-      webcli exp save workflow - deploy-ude    # 从 stdin 保存/更新流程经验
+      webcli exp save action sls query-log     # 从 stdin 保存/更新流程经验
       webcli exp edit api yiche.com rank       # 用编辑器打开经验文件
       webcli exp update api yiche.com rank --last-used-status success  # 更新使用状态
       webcli exp del api yiche.com rank         # 删除经验（有确认提示）
@@ -1286,19 +1285,25 @@ def exp_update(category: str, site: str, name: str, last_used_at: str, last_used
 
 # Shortcut for site-scoped categories: webcli exp api <site> [name]
 def _make_site_shortcut(cat: str) -> None:
-    @exp.command(name=cat)
+    # Define help text for each category
+    help_texts = {
+        "api": "快捷方式：查看接口类经验（省略 show 子命令）。",
+        "login": "快捷方式：查看登录类经验（省略 show 子命令）。",
+        "action": "快捷方式：查看操作类经验（省略 show 子命令）。",
+    }
+    
+    @exp.command(name=cat, short_help=help_texts.get(cat, "快捷方式：查看指定经验（省略 show 子命令）。"))
     @click.argument("site")
     @click.argument("name", required=False, default="")
     @click.pass_context
     def _shortcut(ctx: click.Context, site: str, name: str) -> None:
-        """快捷方式：查看指定站点分类的经验（省略 show 子命令）。"""
         if not name:
             ctx.invoke(exp_list, site=site)
         else:
             ctx.invoke(exp_show, category=cat, site=site, name=name)
     _shortcut.__name__ = f"exp_{cat.replace('-', '_')}"
 
-# Shortcut for global categories: webcli exp workflow [name]  (no site arg)
+# Shortcut for global categories: webcli exp anti-crawl [name]  (no site arg)
 def _make_global_shortcut(cat: str) -> None:
     @exp.command(name=cat)
     @click.argument("name", required=False, default="")

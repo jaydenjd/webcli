@@ -238,7 +238,7 @@ webcli eval $TARGET "document.querySelector('.data')"
 ---
 # 基础标签
 site: example.com                    # 站点域名
-category: api | login | action | anti-crawl | workflow  # 经验分类
+category: api | login | action | anti-crawl  # 经验分类
 description: 易车销量榜接口数据获取经验  # 模型自动生成的经验描述
 tags: [search, user-info, video]     # 模型自动打的语义标签
 
@@ -278,9 +278,8 @@ confidence: high | medium | low           # 可信度
 │   └── {site-domain}/
 │       ├── api/          # 接口数据获取经验（webcli 抓包发现的接口）
 │       ├── login/        # 自动化登录经验
-│       └── action/       # 自动化操作经验（页面交互流程）
-├── anti-crawl/           # 反爬对抗经验（跨站点通用）
-└── workflow/             # 多步骤任务流程经验（跨站点，按任务目标命名）
+│       └── action/       # 自动化操作经验（页面交互流程、跨站点任务）
+└── anti-crawl/           # 反爬对抗经验（跨站点通用）
 ```
 
 > 经验统一存储在 `~/.agents/skills/webcli_exp/`，与 agent 平台无关，Claude、Cursor、Windsurf 等共享同一份经验库。如需自定义路径，设置环境变量 `WEB_CLI_EXPERIENCE_DIR=/your/path`。
@@ -292,8 +291,8 @@ confidence: high | medium | low           # 可信度
 | **api** | `sites/{domain}/api/` | **获取数据**：在单个站点内，任何以获取/产出数据为目标的操作，无论是否有独立 HTTP 接口 | `rank.md`、`search.md`、`user-info.md` |
 | **login** | `sites/{domain}/login/` | 自动化登录流程、Cookie 获取、验证码处理 | `main.md`、`sms.md`、`qrcode.md` |
 | **action** | `sites/{domain}/action/` | **执行操作**：在单个站点内，以执行操作为目标（发帖、评论、点赞、上传等），最终产出是操作结果而非数据 | `post.md`、`comment.md`、`like.md` |
+| **action** | `sites/{domain}/action/` | **跨站点任务**：涉及多个站点/系统的完整任务流程，按任务目标命名 | `query-sls-log.md`、`deploy-ude.md` |
 | **anti-crawl** | `anti-crawl/` | 跨站点通用的反爬对抗经验 | `cloudflare.md`、`slider-captcha.md` |
-| **workflow** | `workflow/` | **跨站点任务**：涉及多个站点/系统的完整任务流程，按任务目标命名 | `query-sls-log.md`、`deploy-ude.md` |
 
 ### 经验分类决策树
 
@@ -312,7 +311,7 @@ confidence: high | medium | low           # 可信度
 │
 ├── 涉及多个站点/系统？
 │    ↓ 是
-│   沉淀为 `workflow` 经验
+│   沉淀为 `action` 经验
 │    └── 按任务目标命名，如 "查询 SLS 日志"、"部署 UDE 服务"
 │
 └── 是登录流程？
@@ -320,15 +319,15 @@ confidence: high | medium | low           # 可信度
     沉淀为 `login` 经验
 ```
 
-### api vs action vs workflow 详细对比
+### api vs action 详细对比
 
-| 维度 | `api` | `action` | `workflow` |
-|------|-------|----------|------------|
-| **核心目标** | 获取/产出数据 | 执行操作 | 完成跨站点任务 |
-| **站点范围** | 单个站点 | 单个站点 | 多个站点/系统 |
-| **最终产出** | 数据（JSON、列表等） | 操作结果（成功/失败） | 任务完成状态 |
-| **代码形式** | Python 函数，返回数据 | Python 函数，返回布尔值 | Python 函数，协调多个步骤 |
-| **典型场景** | 抓取排行榜、搜索数据、获取用户信息 | 发帖、评论、点赞、上传文件 | 查询日志、部署服务、数据同步 |
+| 维度 | `api` | `action` |
+|------|-------|----------|
+| **核心目标** | 获取/产出数据 | 执行操作 |
+| **站点范围** | 单个站点 | 单个站点 或 多个站点/系统 |
+| **最终产出** | 数据（JSON、列表等） | 操作结果（成功/失败） |
+| **代码形式** | Python 函数，返回数据 | Python 函数，返回布尔值 |
+| **典型场景** | 抓取排行榜、搜索数据、获取用户信息 | 发帖、评论、点赞、上传文件、查询日志、部署服务 |
 
 ### 示例对比
 
@@ -338,15 +337,15 @@ confidence: high | medium | low           # 可信度
 | 在 it 之家发帖 | `action` | 目标是执行操作 |
 | 在 it 之家搜索并提取结果 | `api` | 目标是获取数据 |
 | 在 it 之家点赞 | `action` | 目标是执行操作 |
-| 查询 SLS 日志（需登录 SLS 控制台） | `workflow` | 涉及登录 + 查询，是完整任务 |
-| 部署 UDE 服务（需登录 Aone + 执行部署） | `workflow` | 跨系统操作 |
+| 查询 SLS 日志（需登录 SLS 控制台） | `action` | 涉及登录 + 查询，是完整任务 |
+| 部署 UDE 服务（需登录 Aone + 执行部署） | `action` | 跨系统操作 |
 | 从某站点获取用户信息 | `api` | 目标是获取数据 |
 | 在某站点点赞/收藏 | `action` | 目标是执行操作 |
 ### 边界情况说明
 
 1. **操作页面获取数据**：如果操作页面（如点击"加载更多"）是为了获取数据，整体沉淀为 `api` 经验，因为最终目标是数据。
 
-2. **单站点多步骤操作**：如果操作只涉及单一站点，即使步骤较多，也优先存 `action`。只有当任务**必须跨站点**，或任务目标本身就是用户说的"那件事"（而非某个更大任务的一个步骤）时，才存 `workflow`。
+2. **跨站点任务**：涉及多个站点/系统的完整任务流程，统一沉淀为 `action` 经验，按任务目标命名。
 
 3. **数据 + 操作混合**：如果任务既需要获取数据又需要执行操作，按**主要目标**分类：
    - 主要目标是数据 → `api`
@@ -630,52 +629,6 @@ updated_at: {YYYY-MM-DD HH:MM:SS}
 >
 > **关键原则**：经验失败时，不要反复重试同一方案——一次失败即视为经验可能过期，立即切换到重新探索模式。
 
-### workflow 类经验
-
-多步骤任务流程经验，**不绑定特定站点**，按任务目标命名。适用于：
-- 跨多个系统/页面的完整操作流程（如：查询日志、发布部署、数据导出）
-- 有明确步骤顺序依赖的任务
-- 需要条件判断或错误处理的自动化流程
-
-```markdown
----
-category: workflow
-status: verified
-created_at: {YYYY-MM-DD HH:MM:SS}
-updated_at: {YYYY-MM-DD HH:MM:SS}
----
-
-# {任务目标名称}（如：查询 SLS 日志、部署 UDE 服务）
-
-## 适用场景
-- {什么情况下使用这个流程}
-- {前置条件：需要登录哪些系统、需要哪些权限等}
-
-## 涉及站点/系统
-- `{domain-1}` — {用途}
-- `{domain-2}` — {用途}
-
-## 操作步骤
-
-### 第一步：{步骤名称}
-```bash
-# 具体命令
-webcli new https://...
-```
-- **等待条件**: {等待什么加载完成}
-- **成功标志**: {如何判断这步成功}
-
-### 第二步：{步骤名称}
-...
-
-## 条件分支
-- **如果 {条件}**：{处理方式}
-- **如果失败**：{回退方案}
-
-## 注意事项
-- {耗时估计、幂等性、副作用等}
-```
-
 ---
 
 ## CLI 使用方式（webcli exp）
@@ -739,8 +692,8 @@ Agent 在以下场景**必须自动调用 `webcli exp save`** 沉淀经验，无
 | 通过抓包发现并验证了数据接口 | `api` | `webcli exp save api {site} {name}` |
 | 完成了自动化登录流程 | `login` | `webcli exp save login {site} main` |
 | 完成了复杂的页面操作流程 | `action` | `webcli exp save action {site} {name}` |
+| 完成了跨站点/多步骤的任务流程 | `action` | `webcli exp save action {site} {task-name}` |
 | 遭遇并突破了反爬机制 | `anti-crawl` | `webcli exp save anti-crawl - {type}` |
-| 完成了跨站点/多步骤的任务流程 | `workflow` | `webcli exp save workflow - {task-name}` |
 
 ### Agent 使用已有经验
 

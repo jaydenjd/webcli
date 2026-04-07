@@ -482,10 +482,8 @@ webcli exp api yiche.com rank  # 读取具体经验
 | 验证了数据接口 | `webcli exp save api {site} {name}` |
 | 完成自动化登录 | `webcli exp save login {site} main` |
 | 完成复杂页面操作 | `webcli exp save action {site} {name}` |
+| 完成跨站点/多步骤流程 | `webcli exp save action {site} {task-name}` |
 | 突破反爬机制 | `webcli exp save anti-crawl - {type}` |
-| 跨站点/多步骤流程 | `webcli exp save workflow - {task-name}` |
-
-**action vs workflow**：单一站点上的操作 → `action`；必须跨站点或任务本身就是用户说的"那件事" → `workflow`。
 
 ### 沉淀方式
 
@@ -510,14 +508,14 @@ webcli exp list / webcli exp list yiche.com          # 列出经验
 webcli exp api yiche.com rank                        # 查看接口经验
 webcli exp login taobao.com main                     # 查看登录经验
 webcli exp action xiaohongshu.com post               # 查看操作经验
+webcli exp action sls query-log                      # 查看跨站点流程经验
 webcli exp anti-crawl cloudflare                     # 查看反爬经验
-webcli exp workflow query-sls-log                    # 查看流程经验
 webcli exp show api yiche.com rank                   # 查看（完整格式）
 webcli exp save api yiche.com rank                   # 从 stdin 保存
 webcli exp edit api yiche.com rank                   # 用编辑器打开
 webcli exp rm api yiche.com rank                     # 删除经验（有确认提示）
 webcli exp rm api yiche.com rank --yes               # 跳过确认直接删除
-webcli exp save workflow - deploy-ude                # 全局经验（site 用 - 占位）
+webcli exp save action sls query-log                 # 保存跨站点流程经验
 webcli exp update api yiche.com rank --last-used-status success  # 更新使用状态
 webcli exp update api yiche.com rank --last-used-status failed   # 更新为失败状态
 webcli exp update api yiche.com rank --append "## 补充内容"      # 追加内容到经验
