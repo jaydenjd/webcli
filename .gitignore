@@ -3,6 +3,6 @@
 webcli_exp/site-patterns/*.md
 
 *.egg-info
-.idea
+.idea/
 .*cpython-312.pyc
 __pycache__
