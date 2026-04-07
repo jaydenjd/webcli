@@ -435,25 +435,30 @@ Commands:
   update      更新经验的使用记录（last_used_at 和 last_used_status）或追加内容。
 ```
 
-> webcli exp list                    
-    分类           站点                        名称
-    ------------------------------------------------------------
-    api          ithome.com                rank
+使用样例
+```bash
+webcli exp list       
+分类           站点                        名称
+------------------------------------------------------------
+api          ithome.com                rank
 
-> webcli exp show api ithome.com rank
-    ---
-    site: ithome.com
-    category: api
-    status: verified
-    created_at: 2026-04-06
-    updated_at: 2026-04-06
-    tags: [rank, news, daily, weekly, monthly, hot-comment]
-    ---
+webcli exp show api ithome.com rank
 
-    # IT之家排行榜数据（DOM 提取）
+---
+site: ithome.com
+category: api
+status: verified
+created_at: 2026-04-06
+updated_at: 2026-04-06
+tags: [rank, news, daily, weekly, monthly, hot-comment]
+---
 
-    ## 接口信息
-    - **页面 URL**: `https://m.ithome.com/rankm/`
-    - **数据源**: SSR 直出
-    - **渲染方式**: 服务端渲染，数据直接在 HTML 中
-    - **数据结构**: 页面包含四个榜单（日榜、周榜、热评、月榜），每个榜单 12 条新闻
+# IT之家排行榜数据（DOM 提取）
+
+## 接口信息
+- **页面 URL**: `https://m.ithome.com/rankm/`
+- **数据源**: SSR 直出
+- **渲染方式**: 服务端渲染，数据直接在 HTML 中
+- **数据结构**: 页面包含四个榜单（日榜、周榜、热评、月榜），每个榜单 12 条新闻
+
+```
