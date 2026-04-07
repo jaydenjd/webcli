@@ -437,13 +437,12 @@ Commands:
 
 使用样例
 ```bash
-webcli exp list       
+> webcli exp list       
 分类           站点                        名称
 ------------------------------------------------------------
 api          ithome.com                rank
 
-webcli exp show api ithome.com rank
-
+> webcli exp show api ithome.com rank
 ---
 site: ithome.com
 category: api
