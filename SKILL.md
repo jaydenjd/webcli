@@ -518,6 +518,9 @@ webcli exp edit api yiche.com rank                   # 用编辑器打开
 webcli exp rm api yiche.com rank                     # 删除经验（有确认提示）
 webcli exp rm api yiche.com rank --yes               # 跳过确认直接删除
 webcli exp save workflow - deploy-ude                # 全局经验（site 用 - 占位）
+webcli exp update api yiche.com rank --last-used-status success  # 更新使用状态
+webcli exp update api yiche.com rank --last-used-status failed   # 更新为失败状态
+webcli exp update api yiche.com rank --append "## 补充内容"      # 追加内容到经验
 ```
 
 > 详细格式规范见 `references/experience.md`。

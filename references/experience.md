@@ -239,6 +239,7 @@ webcli eval $TARGET "document.querySelector('.data')"
 # 基础标签
 site: example.com                    # 站点域名
 category: api | login | action | anti-crawl | workflow  # 经验分类
+description: 易车销量榜接口数据获取经验  # 模型自动生成的经验描述
 tags: [search, user-info, video]     # 模型自动打的语义标签
 
 # 时间标签
@@ -720,6 +721,13 @@ echo "## 补充说明\n..." | webcli exp save api yiche.com rank --append
 
 # 用编辑器手动编辑（会自动创建模板）
 webcli exp edit api yiche.com rank
+
+# 更新经验的使用状态
+webcli exp update api yiche.com rank --last-used-status success
+webcli exp update api yiche.com rank --last-used-status failed
+
+# 追加内容到已有经验（更新经验内容）
+echo "## 补充说明\n..." | webcli exp update api yiche.com rank --append
 ```
 
 ### Agent 自动沉淀规则

@@ -1033,12 +1033,12 @@ def _exp_path(category: str, site: str, name: str) -> Path:
 
 def _exp_frontmatter(category: str, site: str, name: str) -> str:
     """Generate default frontmatter for a new experience file."""
-    from datetime import date
-    today = date.today().isoformat()
+    from datetime import datetime
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if category in SITE_SCOPED_CATEGORIES:
-        base = f"site: {site}\ncategory: {category}\nstatus: verified\ncreated_at: {today}\nupdated_at: {today}\n"
+        base = f"site: {site}\ncategory: {category}\ndescription: {name} 经验\ntags: []\nstatus: verified\ncreated_at: {now}\nupdated_at: {now}\nlast_used_at: {now}\nlast_used_status: success\n"
     else:
-        base = f"category: {category}\nstatus: verified\ncreated_at: {today}\nupdated_at: {today}\n"
+        base = f"category: {category}\ndescription: {name} 经验\ntags: []\nstatus: verified\ncreated_at: {now}\nupdated_at: {now}\nlast_used_at: {now}\nlast_used_status: success\n"
     return f"---\n{base}---\n\n"
 
 
@@ -1069,6 +1069,7 @@ def exp():
       webcli exp save api yiche.com rank       # 从 stdin 保存/更新站点级经验
       webcli exp save workflow - deploy-ude    # 从 stdin 保存/更新流程经验
       webcli exp edit api yiche.com rank       # 用编辑器打开经验文件
+      webcli exp update api yiche.com rank --last-used-status success  # 更新使用状态
       webcli exp del api yiche.com rank         # 删除经验（有确认提示）
       webcli exp del api yiche.com rank --yes   # 跳过确认直接删除
     """
@@ -1217,6 +1218,70 @@ def exp_rm(category: str, site: str, name: str, yes: bool):
         parent.rmdir()
         click.echo(f"   （已清理空目录：{parent}）")
 
+
+@exp.command(name="update")
+@click.argument("category", type=click.Choice(VALID_CATEGORIES))
+@click.argument("site")
+@click.argument("name")
+@click.option("--last-used-at", "last_used_at", default="", help="更新 last_used_at 时间（格式：YYYY-MM-DD HH:MM:SS），不指定则使用当前时间。")
+@click.option("--last-used-status", "last_used_status", default="", type=click.Choice(["success", "failed"]), help="更新 last_used_status 状态。")
+def exp_update(category: str, site: str, name: str, last_used_at: str, last_used_status: str):
+    """更新经验的使用记录（last_used_at 和 last_used_status）或追加内容。
+
+    \b
+    示例：
+      webcli exp update api yiche.com rank --last-used-status success
+      webcli exp update api yiche.com rank --last-used-status failed
+      webcli exp update api yiche.com rank --last-used-at "2026-04-07 13:54:00" --last-used-status success
+    """
+    exp_file = _exp_path(category, site, name)
+    if not exp_file.exists():
+        click.echo(f"经验不存在：{exp_file}", err=True)
+        sys.exit(1)
+
+    content = exp_file.read_text(encoding="utf-8")
+    
+    # 解析 frontmatter
+    if not content.startswith("---\n"):
+        click.echo("经验文件格式错误：缺少 frontmatter", err=True)
+        sys.exit(1)
+    
+    lines = content.split("\n")
+    frontmatter_end = -1
+    for i, line in enumerate(lines[1:], 1):
+        if line.strip() == "---":
+            frontmatter_end = i
+            break
+    
+    if frontmatter_end == -1:
+        click.echo("经验文件格式错误：frontmatter 未正确闭合", err=True)
+        sys.exit(1)
+    
+    # 更新 last_used_at
+    if last_used_at:
+        for i in range(1, frontmatter_end):
+            if lines[i].startswith("last_used_at:"):
+                lines[i] = f"last_used_at: {last_used_at}"
+                break
+    else:
+        # 使用当前时间
+        from datetime import datetime
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for i in range(1, frontmatter_end):
+            if lines[i].startswith("last_used_at:"):
+                lines[i] = f"last_used_at: {now}"
+                break
+    
+    # 更新 last_used_status
+    if last_used_status:
+        for i in range(1, frontmatter_end):
+            if lines[i].startswith("last_used_status:"):
+                lines[i] = f"last_used_status: {last_used_status}"
+                break
+    
+    # 写回文件
+    exp_file.write_text("\n".join(lines), encoding="utf-8")
+    click.echo(f"✅ 已更新：{exp_file}")
 
 
 # Shortcut for site-scoped categories: webcli exp api <site> [name]
