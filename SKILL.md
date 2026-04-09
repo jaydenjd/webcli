@@ -30,36 +30,34 @@ pip3 install -e .
 check-deps
 ```
 
-### 浏览器选择策略
+### 环境准备
 
-> **默认连用户已有 Chrome，不要主动新开——新开会丢失登录态。**
+**macOS**：日常 Chrome 已运行，无需额外操作。
 
-| 场景 | 操作                                               |
-|------|--------------------------------------------------|
-| 默认（macOS/Windows 桌面） | 直连已有 Chrome（端口 9222），Proxy 自动探测，无需配置             |
-| 隔离环境（用户说"新浏览器"/"不用我账号"） | 手动启动第二个隔离 Chrome 实例（端口 9223）+ 第二个 Proxy（端口 3457） |
-| Linux / Docker headless | 启动 headless Chrome（端口 9223），Proxy 自动探测           |
+**Linux / Docker / 沙箱环境**：
 
-**需要隔离环境时**：
+1. **先启动 Chrome（无头模式）**：
+
 ```bash
-# 启动隔离 Chrome（macOS)
-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
-  --remote-debugging-port=9223 --user-data-dir="/tmp/chrome" \
-  --no-first-run --no-default-browser-check
+google-chrome --headless=new --remote-debugging-port=9222 &
+```
 
-# 启动隔离 Chrome（Linux / Docker）
-google-chrome --headless=new --remote-debugging-port=9223 \
-  --user-data-dir="/tmp/chrome-9223" --no-first-run \
-  --no-sandbox --disable-dev-shm-usage &   # Docker 需加后两个参数
-  
-# 启动隔离 Chrome（Windows）
-chrome.exe --remote-debugging-port=9223 --user-data-dir="/tmp/chrome"
+2. **等待 Chrome 启动完成**（约 1-2 秒）：
 
-# 启动第二个 Proxy
-python3 <skill目录>/browser_cdp/cdp_proxy.py --port 3457 --chrome-port 9223 &
+```bash
+sleep 2
+```
 
-# 操作时指定端口
-CDP_PROXY_PORT=3457 webcli new https://example.com
+3. **运行环境检查**：
+
+```bash
+check-deps
+```
+
+> **Docker 环境额外参数**：如果 Chrome 启动失败，添加 `--no-sandbox --disable-dev-shm-usage` 参数：
+> ```bash
+> google-chrome --headless=new --remote-debugging-port=9222 --no-sandbox --disable-dev-shm-usage &
+>
 ```
 
 
