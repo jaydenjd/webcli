@@ -1289,6 +1289,152 @@ async def handle_check_element(request: aiohttp_web.Request) -> aiohttp_web.Resp
     return aiohttp_web.json_response(val)
 
 
+async def handle_drag(request: aiohttp_web.Request) -> aiohttp_web.Response:
+    """Drag an element to another element or coordinates.
+    
+    POST body: JSON with {
+        "from": "selector or {x, y}",
+        "to": "selector or {x, y}"
+    }
+    """
+    await connect()
+    target_id = request.query["target"]
+    session_id = await ensure_session(target_id)
+
+    body = await request.json()
+    from_spec = body.get("from")
+    to_spec = body.get("to")
+
+    if not from_spec or not to_spec:
+        return aiohttp_web.json_response({"error": "Missing 'from' or 'to' parameter"}, status=400)
+
+    # Get coordinates for source element
+    async def get_coords(spec):
+        if isinstance(spec, dict):
+            return (spec.get("x", 0), spec.get("y", 0))
+        # It's a selector
+        js = f"""(() => {{
+            const el = document.querySelector({json.dumps(spec)});
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return {{ x: r.left + r.width / 2, y: r.top + r.height / 2 }};
+        }})()"""
+        resp = await send_cdp("Runtime.evaluate", {"expression": js, "returnByValue": True}, session_id)
+        coords = resp.get("result", {}).get("result", {}).get("value")
+        if not coords:
+            return None
+        return (coords["x"], coords["y"])
+
+    from_coords = await get_coords(from_spec)
+    if from_coords is None:
+        return aiohttp_web.json_response({"error": f"Source not found: {from_spec}"}, status=400)
+
+    to_coords = await get_coords(to_spec)
+    if to_coords is None:
+        return aiohttp_web.json_response({"error": f"Target not found: {to_spec}"}, status=400)
+
+    # Perform drag using CDP Input domain
+    # 1. Mouse down at source
+    await send_cdp("Input.dispatchMouseEvent", {
+        "type": "mousePressed",
+        "x": from_coords[0],
+        "y": from_coords[1],
+        "button": "left",
+        "clickCount": 1,
+    }, session_id)
+
+    # 2. Mouse move to target
+    await send_cdp("Input.dispatchMouseEvent", {
+        "type": "mouseMoved",
+        "x": to_coords[0],
+        "y": to_coords[1],
+        "buttons": 1,  # left button held
+    }, session_id)
+
+    # 3. Mouse up at target
+    await send_cdp("Input.dispatchMouseEvent", {
+        "type": "mouseReleased",
+        "x": to_coords[0],
+        "y": to_coords[1],
+        "button": "left",
+        "clickCount": 1,
+    }, session_id)
+
+    return aiohttp_web.json_response({
+        "ok": True,
+        "from": from_coords,
+        "to": to_coords,
+    })
+
+async def handle_page_errors(request: aiohttp_web.Request) -> aiohttp_web.Response:
+    """Get page errors collected since last call.
+    
+    Captures JavaScript errors, unhandled promise rejections, and console errors.
+    """
+    await connect()
+    target_id = request.query["target"]
+    session_id = await ensure_session(target_id)
+
+    # Get errors via JS evaluation
+    resp = await send_cdp("Runtime.evaluate", {
+        "expression": """(() => {
+            if (!window.__cdp_page_errors) return [];
+            const errors = window.__cdp_page_errors;
+            window.__cdp_page_errors = [];
+            return errors;
+        })()""",
+        "returnByValue": True,
+    }, session_id)
+
+    errors = resp.get("result", {}).get("result", {}).get("value") or []
+
+    # If not yet initialized, inject error interceptor
+    if not errors and request.query.get("init") != "0":
+        await send_cdp("Runtime.evaluate", {
+            "expression": """(() => {
+                if (window.__cdp_errors_patched) return;
+                window.__cdp_page_errors = [];
+                window.__cdp_errors_patched = true;
+
+                // Capture uncaught exceptions
+                window.onerror = function(msg, url, line, col, error) {
+                    window.__cdp_page_errors.push({
+                        type: 'error',
+                        message: msg,
+                        url: url,
+                        line: line,
+                        column: col,
+                        stack: error ? error.stack : undefined,
+                        timestamp: Date.now()
+                    });
+                    return false; // Don't suppress the error
+                };
+
+                // Capture unhandled promise rejections
+                window.onunhandledrejection = function(event) {
+                    window.__cdp_page_errors.push({
+                        type: 'unhandled_rejection',
+                        message: event.reason ? String(event.reason) : 'Unhandled promise rejection',
+                        reason: event.reason,
+                        timestamp: Date.now()
+                    });
+                };
+
+                // Capture console errors
+                const origError = console.error.bind(console);
+                console.error = function(...args) {
+                    window.__cdp_page_errors.push({
+                        type: 'console_error',
+                        message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
+                        timestamp: Date.now()
+                    });
+                    origError(...args);
+                };
+            })()""",
+        }, session_id)
+
+    return aiohttp_web.json_response({"errors": errors})
+
 # ─── Cookies ────────────────────────────────────────────────────────────────
 
 async def handle_cookies_get(request: aiohttp_web.Request) -> aiohttp_web.Response:
@@ -1977,6 +2123,8 @@ async def main() -> None:
     app.router.add_post("/focus", handle_focus)
     app.router.add_post("/select", handle_select)
     app.router.add_post("/check", handle_check_element)
+    app.router.add_post("/drag", handle_drag)
+    app.router.add_get("/page-errors", handle_page_errors)
     app.router.add_get("/cookies", handle_cookies_get)
     app.router.add_post("/cookies/set", handle_cookies_set)
     app.router.add_get("/cookies/clear", handle_cookies_clear)

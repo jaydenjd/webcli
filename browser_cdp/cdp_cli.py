@@ -510,6 +510,36 @@ def uncheck(target_id: str, selector: str):
     print(json.dumps(result, indent=2))
 
 
+
+@cli.command()
+@click.argument("target_id")
+@click.argument("from_spec")
+@click.argument("to_spec")
+def drag(target_id: str, from_spec: str, to_spec: str):
+    """拖拽元素。from_spec 和 to_spec 可以是 CSS 选择器或坐标（如 "100,200"）。"""
+    def parse_spec(spec):
+        if ',' in spec:
+            parts = spec.split(',')
+            return {"x": float(parts[0]), "y": float(parts[1])}
+        return spec
+    
+    result = http_post_json(f"/drag?target={target_id}", {
+        "from": parse_spec(from_spec),
+        "to": parse_spec(to_spec)
+    })
+    print(json.dumps(result, indent=2))
+
+@cli.command()
+@click.argument("target_id")
+@click.option("--init", is_flag=True, default=True, help="Initialize error interceptor if not already done.")
+def page_errors(target_id: str, init: bool):
+    """获取页面错误信息（JavaScript 错误、未处理的 Promise 拒绝、console.error）。"""
+    path = f"/page-errors?target={target_id}"
+    if not init:
+        path += "&init=0"
+    result = http_get(path)
+    print(json.dumps(result, indent=2))
+
 @cli.command(name="set-files")
 @click.argument("target_id")
 @click.argument("selector")

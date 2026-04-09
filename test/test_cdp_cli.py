@@ -454,6 +454,50 @@ else:
         print(f"{PASS} [memory-limit: closed tab returns empty] (no captures for closed tab)")
         results["pass"] += 1
 
+# ─── 17. Drag & Page Errors ───────────────────────────────────────────────────
+print("\n══════════════════════════════════════════")
+print("  17. Drag & Page Errors")
+print("══════════════════════════════════════════")
+
+# Navigate to a page with draggable elements
+test("navigate to drag test page", 
+     f"webcli navigate {TARGET_ID} 'data:text/html,<div id=draggable style=width:100px;height:100px;background:red;position:absolute;left:50px;top:50px>Drag Me</div><div id=dropzone style=width:200px;height:200px;background:blue;position:absolute;left:300px;top:50px>Drop Zone</div>'")
+time.sleep(1)
+
+# Test drag with CSS selectors
+test("drag with selectors", 
+     f"webcli drag {TARGET_ID} '#draggable' '#dropzone'", 
+     expect_key="ok", expect_val=True)
+
+# Test drag with coordinates
+test("drag with coordinates", 
+     f"webcli drag {TARGET_ID} '100,100' '400,150'", 
+     expect_key="ok", expect_val=True)
+
+# Test page-errors (initialize error interceptor)
+test("page-errors init", 
+     f"webcli page-errors {TARGET_ID}", 
+     expect_key="errors")
+
+# Trigger a console.error and verify it's captured
+rc, stdout, _ = run(f"webcli eval {TARGET_ID} \"console.error('Test error from eval')\"")
+if rc == 0:
+    print(f"       {INFO} Triggered console.error")
+
+# Check if error was captured
+rc2, stdout2, _ = run(f"webcli page-errors {TARGET_ID}")
+if rc2 == 0 and "Test error from eval" in stdout2:
+    print(f"{PASS} [page-errors captured console.error]")
+    results["pass"] += 1
+else:
+    print(f"{FAIL} [page-errors captured console.error] got: {stdout2[:200]}")
+    results["fail"] += 1
+
+# Test page-errors with --no-init flag
+test("page-errors --no-init", 
+     f"webcli page-errors {TARGET_ID} --no-init", 
+     expect_key="errors")
+
 # ─── 18. Cleanup ──────────────────────────────────────────────────────────────
 print("\n══════════════════════════════════════════")
 print("  18. Cleanup")

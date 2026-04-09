@@ -329,67 +329,71 @@ python browser_cdp/cdp_proxy.py --port 3457 --chrome-port 9223 &
 
 
 ### webcli 命令大全
-```bash
-webcli    
-Usage: webcli [OPTIONS] COMMAND [ARGS]...
 
-  webcli - Browser automation via Chrome DevTools Protocol
+| 分类 | 命令 | 说明 |
+|------|------|------|
+| **🌐 浏览器与标签页管理** | `browser` | 检查 Chrome 状态，如果未运行则显示启动说明 |
+| | `health` | 健康检查 — 显示 Proxy 状态和 Chrome 连接情况 |
+| | `tabs` / `targets` | 列出所有浏览器标签页 |
+| | `new <url>` | 新建标签页并等待加载完成 |
+| | `open-monitored <url>` | 新建标签页并从第一个请求起开启网络监控 |
+| | `close <target_id>` | 关闭标签页 |
+| **🧭 页面导航** | `navigate <target_id> <url>` | 在当前标签页导航到指定 URL |
+| | `back <target_id>` | 后退到上一页 |
+| | `forward <target_id>` | 前进到下一页 |
+| | `reload <target_id>` | 刷新标签页并等待加载完成 |
+| **📸 页面信息获取** | `info <target_id>` | 获取页面基本信息（标题、URL、尺寸） |
+| | `get <target_id> <property>` | 获取页面或元素属性（title, url, text, html, count, box, value） |
+| | `snapshot <target_id>` | 获取无障碍树（含元素引用），AI 导航首选 |
+| | `screenshot <target_id> [path]` | 截图。指定路径则保存到文件，否则输出二进制到 stdout |
+| | `console <target_id>` | 获取页面拦截到的 console 日志 |
+| | `page-errors <target_id>` | 获取页面错误信息（JavaScript 错误、未处理的 Promise 拒绝、console.error） |
+| **🖱️ 元素交互** | `click <target_id> <selector>` | 点击元素（JS el.click() 方式） |
+| | `click-at <target_id> <selector>` | 点击元素（CDP 真实鼠标事件，适用于滑块、Canvas 等） |
+| | `hover <target_id> <selector>` | 悬停到指定元素上 |
+| | `focus <target_id> <selector>` | 聚焦到指定元素 |
+| | `drag <target_id> <from> <to>` | 拖拽元素。from 和 to 可以是 CSS 选择器或坐标（如 "100,200"） |
+| | `scroll <target_id> [direction]` | 滚动页面。参数：top \| bottom \| up \| down \| <像素数> |
+| | `press <target_id> <key>` | 按下按键或组合键（如 Enter、Tab、Control+a、Shift+ArrowDown） |
+| **📝 表单操作** | `fill <target_id> <selector> <value>` | 清空并填写输入框（直接设置 value，触发 input/change 事件） |
+| | `type <target_id> <selector> <text>` | 逐字符输入文本（模拟真实键盘事件） |
+| | `select <target_id> <selector> <value>` | 按值或可见文本选择下拉框选项 |
+| | `check <target_id> <selector>` | 勾选复选框 |
+| | `uncheck <target_id> <selector>` | 取消勾选复选框 |
+| | `set-files <target_id> <selector> <files...>` | 为文件输入框设置文件（绕过系统文件选择对话框） |
+| **🔍 元素查找与状态检查** | `find <target_id> <locator> [action]` | 按语义定位器查找元素并执行操作（无需知道 CSS 选择器） |
+| | `is <target_id> <state> <selector>` | 检查元素状态：visible（可见）、enabled（可用）、checked（已勾选） |
+| **⏱️ 等待** | `wait <target_id> [options]` | 等待元素、毫秒数、文本出现或 JS 条件成立 |
+| **📊 网络请求捕获** | `network-start <target_id>` | 开始捕获标签页的网络请求 |
+| | `network-stop <target_id>` | 停止捕获网络请求 |
+| | `network-requests <target_id> [options]` | 列出捕获的网络请求，支持多种过滤条件 |
+| | `network-request <target_id> <request_id>` | 获取单个请求的完整详情（含响应体） |
+| | `network-clear <target_id>` | 清空已捕获的请求记录（保持捕获继续运行） |
+| **📜 脚本捕获** | `scripts-enable <target_id>` | 启用 Debugger 域，开始捕获标签页加载的所有脚本 |
+| | `scripts-list <target_id>` | 列出标签页已捕获的脚本（默认排除 chrome-extension 脚本） |
+| | `scripts-source <target_id> <script_id>` | 获取指定脚本的源码 |
+| **💾 数据存储** | `cookies <target_id>` | 获取当前页面的 Cookie |
+| | `cookies-set <target_id> <name> <value>` | 设置 Cookie |
+| | `cookies-clear <target_id>` | 清除浏览器中所有 Cookie |
+| | `storage <target_id> <type> <key>` | 获取 localStorage 或 sessionStorage 的值 |
+| | `storage-set <target_id> <type> <key> <value>` | 设置 localStorage 或 sessionStorage 的值 |
+| | `storage-clear <target_id> <type>` | 清空 localStorage 或 sessionStorage |
+| **🪟 对话框处理** | `dialog-status <target_id>` | 检查当前是否有 JavaScript 对话框（alert/confirm/prompt）弹出 |
+| | `dialog-accept <target_id> [text]` | 确认（接受）JavaScript 对话框。prompt 对话框可传入文本 |
+| | `dialog-dismiss <target_id>` | 取消（关闭）JavaScript 对话框 |
+| **💻 JavaScript 执行** | `eval <target_id> <expression>` | 执行 JavaScript。可直接传表达式、用 -f 指定文件，或通过 stdin 管道输入 |
+| **📚 经验库管理** | `exp list [site]` | 列出所有经验，或指定站点的经验 |
+| | `exp api <site> <name>` | 查看接口类经验 |
+| | `exp login <site> <name>` | 查看登录类经验 |
+| | `exp action <site> <name>` | 查看操作类经验 |
+| | `exp anti-crawl <type>` | 查看反爬对抗经验 |
+| | `exp save <category> <site> <name>` | 从 stdin 保存经验 |
+| | `exp edit <category> <site> <name>` | 用编辑器打开经验文件 |
+| | `exp del <category> <site> <name>` | 删除经验（有确认提示） |
+| | `exp update <category> <site> <name> [options]` | 更新经验的使用记录或追加内容 |
+| **ℹ️ 帮助** | `show-help` | 显示所有可用命令的使用摘要 |
+| | `--help` | 显示帮助信息 |
 
-Options:
-  --help  Show this message and exit.
-
-Commands:
-  back              后退到上一页。
-  check             勾选复选框。
-  click             点击元素（JS el.click() 方式）。
-  click-at          点击元素（CDP 真实鼠标事件，适用于滑块、Canvas 等）。
-  close             关闭标签页。
-  console           获取页面拦截到的 console 日志。
-  cookies           获取当前页面的 Cookie。
-  cookies-clear     清除浏览器中所有 Cookie。
-  cookies-set       设置 Cookie。
-  dialog-accept     确认（接受）JavaScript 对话框。prompt 对话框可传入文本。
-  dialog-dismiss    取消（关闭）JavaScript 对话框。
-  dialog-status     检查当前是否有 JavaScript 对话框（alert/confirm/prompt）弹出。
-  eval              执行 JavaScript。可直接传表达式、用 -f 指定文件，或通过 stdin 管道输入。
-  exp               经验库管理（纯本地文件操作，不依赖 Proxy）。
-  fill              清空并填写输入框（直接设置 value，触发 input/change 事件）。
-  find              按语义定位器查找元素并执行操作（无需知道 CSS 选择器）。
-  focus             聚焦到指定元素。
-  forward           前进到下一页。
-  get               获取页面或元素属性。
-  health            健康检查 — 显示 Proxy 状态和 Chrome 连接情况。
-  hover             悬停到指定元素上。
-  info              获取页面基本信息（标题、URL、尺寸）。
-  is                检查元素状态：visible（可见）、enabled（可用）、checked（已勾选）。
-  navigate          在当前标签页导航到指定 URL。
-  network-clear     清空已捕获的请求记录（保持捕获继续运行）。
-  network-request   获取单个请求的完整详情（含响应体）。
-  network-requests  列出捕获的网络请求，支持多种过滤条件。
-  network-start     开始捕获标签页的网络请求。
-  network-stop      停止捕获网络请求。
-  new               新建标签页并等待加载完成。
-  open-monitored    新建标签页并从第一个请求起开启网络监控。
-  press             按下按键或组合键（如 Enter、Tab、Control+a、Shift+ArrowDown）。
-  reload            刷新标签页并等待加载完成。
-  screenshot        截图。指定路径则保存到文件，否则输出二进制到 stdout。
-  scripts-enable    启用 Debugger 域，开始捕获标签页加载的所有脚本。
-  scripts-list      列出标签页已捕获的脚本（默认排除 chrome-extension 脚本）。
-  scripts-source    获取指定脚本的源码。
-  scroll            滚动页面。参数：top | bottom | up | down | <像素数>。
-  select            按值或可见文本选择下拉框选项。
-  set-files         为文件输入框设置文件（绕过系统文件选择对话框）。
-  show-help         Show all available commands with usage summary.
-  snapshot          获取无障碍树（含元素引用），AI 导航首选。
-  storage           获取 localStorage 或 sessionStorage 的值。
-  storage-clear     清空 localStorage 或 sessionStorage。
-  storage-set       设置 localStorage 或 sessionStorage 的值。
-  tabs              列出所有浏览器标签页（targets 的别名）。
-  targets           列出所有浏览器标签页。
-  type              逐字符输入文本（模拟真实键盘事件）。
-  uncheck           取消勾选复选框。
-  wait              等待元素、毫秒数、文本出现或 JS 条件成立。
-```
 ### webcli exp 命令
 ```bash
 webcli exp      
