@@ -8,6 +8,7 @@ All commands correspond to real endpoints in cdp_proxy.py.
 
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -19,6 +20,12 @@ from pathlib import Path
 from typing import Optional
 
 import click
+from importlib.metadata import version as pkg_version
+
+try:
+    __version__ = pkg_version("webcli")
+except Exception:
+    __version__ = "dev"
 
 PROXY_PORT = int(os.environ.get("CDP_PROXY_PORT", "3456"))
 PROXY_URL = f"http://127.0.0.1:{PROXY_PORT}"
@@ -246,6 +253,7 @@ class AliasUnderscoreGroup(click.Group):
 
 
 @click.group(cls=AliasUnderscoreGroup, invoke_without_command=True)
+@click.version_option(version=__version__, prog_name="webcli")
 @click.pass_context
 def cli(ctx: click.Context):
     """webcli - Browser automation via Chrome DevTools Protocol"""
@@ -316,12 +324,12 @@ def new(url: str, id_only: bool, snapshot: bool, depth: int):
     else:
         snapshot_text = result.get("snapshot", "")
         if snapshot_text:
+            print(f"# targetId: {target_id}\n")
             print(snapshot_text)
             node_count = result.get("nodeCount", 0)
             ref_count = len(result.get("refs", {}))
             if node_count:
                 print(f"\n# {node_count} nodes, {ref_count} refs (depth={depth})")
-            print(f"\n# targetId: {target_id}")
         else:
             print(json.dumps(result, indent=2))
             if target_id:
@@ -356,12 +364,12 @@ def open_monitored(url: str, id_only: bool, snapshot: bool, depth: int):
     else:
         snapshot_text = result.get("snapshot", "")
         if snapshot_text:
+            print(f"# targetId: {target_id}  |  capturing: network\n")
             print(snapshot_text)
             node_count = result.get("nodeCount", 0)
             ref_count = len(result.get("refs", {}))
             if node_count:
                 print(f"\n# {node_count} nodes, {ref_count} refs (depth={depth})")
-            print(f"\n# targetId: {target_id}  |  capturing: network")
         else:
             print(json.dumps(result, indent=2))
             if target_id:
@@ -395,12 +403,12 @@ def navigate(target_id: str, url: str, snapshot: bool, depth: int):
     result = http_get(path)
     snapshot_text = result.get("snapshot", "")
     if snapshot_text:
+        print(f"# targetId: {target_id}  |  url: {result.get('url', '')}\n")
         print(snapshot_text)
         node_count = result.get("nodeCount", 0)
         ref_count = len(result.get("refs", {}))
         if node_count:
             print(f"\n# {node_count} nodes, {ref_count} refs (depth={depth})")
-        print(f"\n# url: {result.get('url', '')}")
     else:
         print(json.dumps(result, indent=2))
 
@@ -469,10 +477,17 @@ def eval(target_id: str, expression: Optional[str], script_file: Optional[str]):
 @cli.command(name="click")
 @click.argument("target_id")
 @click.argument("selector")
-def click_element(target_id: str, selector: str):
-    """点击元素（JS el.click() 方式）。"""
+@click.option("--snapshot", is_flag=True, default=False, help="Auto-capture accessibility tree after click.")
+@click.option("--depth", default=3, help="Snapshot tree depth (default: 3, only used with --snapshot).")
+def click_element(target_id: str, selector: str, snapshot: bool, depth: int):
+    """点击元素（JS el.click() 方式）。支持 CSS 选择器或 snapshot ref（如 @e27、[@e27]）。"""
     result = http_post(f"/click?target={target_id}", selector)
     print(json.dumps(result, indent=2))
+    if snapshot and result.get("clicked"):
+        import time
+        time.sleep(0.5)
+        snap = http_get(f"/snapshot?target={target_id}&depth={depth}")
+        print(snap.get("snapshot", ""))
 
 
 @cli.command(name="click-at")
@@ -755,13 +770,16 @@ def is_state(target_id: str, check: str, selector: str):
 @click.option("--exact", is_flag=True, help="Require exact text/name match.")
 @click.option("--nth", default=0, help="Use nth match (0-indexed, default: 0).")
 @click.option("--fill-value", default="", help="Value to fill (required when action=fill).")
-def find(target_id: str, by: str, value: str, action: str, name_filter: str, exact: bool, nth: int, fill_value: str):
+@click.option("--snapshot", is_flag=True, default=False, help="Auto-capture accessibility tree after action.")
+@click.option("--depth", default=3, help="Snapshot tree depth (default: 3, only used with --snapshot).")
+def find(target_id: str, by: str, value: str, action: str, name_filter: str, exact: bool, nth: int, fill_value: str, snapshot: bool, depth: int):
     """按语义定位器查找元素并执行操作（无需知道 CSS 选择器）。
 
     \b
     示例：
       webcli find <id> role button click --name "提交"
       webcli find <id> text "登录" click
+      webcli find <id> text "登录" click --snapshot    # 点击后自动获取无障碍树
       webcli find <id> label "邮箱" fill --fill-value "user@example.com"
       webcli find <id> placeholder "搜索..." fill --fill-value "hello"
       webcli find <id> testid "submit-btn" click
@@ -778,6 +796,11 @@ def find(target_id: str, by: str, value: str, action: str, name_filter: str, exa
         path += f"&fill_value={urllib.parse.quote(fill_value, safe='')}"
     result = http_get(path)
     print(json.dumps(result, indent=2, ensure_ascii=False))
+    if snapshot and action == "click" and result.get("clicked"):
+        import time
+        time.sleep(0.5)
+        snap = http_get(f"/snapshot?target={target_id}&depth={depth}")
+        print(snap.get("snapshot", ""))
 
 
 # ─── Cookies ─────────────────────────────────────────────────────────────────
@@ -923,6 +946,330 @@ def network_stop(target_id: str):
     """停止捕获网络请求。"""
     result = http_get(f"/network/stop?target={target_id}")
     print(json.dumps(result, indent=2))
+
+
+# ─── Page analysis ─────────────────────────────────────────────────────────────
+
+def _fetch_raw_html(url: str, timeout_seconds: int = 15) -> str:
+    """Fetch raw HTML via urllib (no browser) for SSR detection."""
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def _detect_rendering(snapshot_text: str, raw_html: str) -> dict:
+    """Compare snapshot (accessibility tree) vs raw HTML to determine rendering type."""
+    # Count meaningful text nodes in snapshot (lines with actual text, not just tag names)
+    snapshot_lines = snapshot_text.strip().splitlines() if snapshot_text else []
+    snapshot_text_nodes = [line for line in snapshot_lines if '"' in line or any(c.isdigit() for c in line.split(']')[-1] if c)]
+    snapshot_node_count = len(snapshot_lines)
+
+    # Analyze raw HTML
+    html_length = len(raw_html)
+    has_initial_state = bool(re.search(r'window\.__\w+\s*=\s*[{\[]', raw_html))
+    has_json_script = bool(re.search(r'<script[^>]*type="application/json"[^>]*>', raw_html))
+    has_next_data = bool(re.search(r'__NEXT_DATA__|__NUXT__|__INITIAL_STATE__', raw_html))
+
+    # Count text content density in HTML body
+    body_match = re.search(r'<body[^>]*>(.*)</body>', raw_html, re.DOTALL)
+    body_html = body_match.group(1) if body_match else raw_html
+    # Strip tags to get pure text
+    pure_text = re.sub(r'<script[^>]*>.*?</script>', '', body_html, flags=re.DOTALL)
+    pure_text = re.sub(r'<style[^>]*>.*?</style>', '', pure_text, flags=re.DOTALL)
+    pure_text = re.sub(r'<[^>]+>', ' ', pure_text)
+    pure_text = re.sub(r'\s+', ' ', pure_text).strip()
+    html_text_length = len(pure_text)
+
+    # Detect frameworks
+    frameworks = []
+    if re.search(r'react|__REACT|_reactRoot|data-reactroot', raw_html, re.I):
+        frameworks.append("React")
+    if re.search(r'ng-app|ng-controller|angular', raw_html, re.I):
+        frameworks.append("Angular")
+    if re.search(r'__vue__|data-v-|vue\.js|vue\.min\.js', raw_html, re.I):
+        frameworks.append("Vue")
+    if re.search(r'__NEXT_DATA__|_next/', raw_html):
+        frameworks.append("Next.js")
+    if re.search(r'__NUXT__|_nuxt/', raw_html):
+        frameworks.append("Nuxt")
+    if re.search(r'svelte|__svelte', raw_html, re.I):
+        frameworks.append("Svelte")
+
+    # Determine rendering type
+    # SSR: raw HTML has substantial text content (>200 chars of pure text in body)
+    # CSR: raw HTML is mostly empty shell, data loaded via JS
+    is_ssr = html_text_length > 200
+    is_hydrated = is_ssr and (has_initial_state or has_next_data or has_json_script)
+
+    if is_ssr and not is_hydrated:
+        rendering = "SSR (传统服务端渲染)"
+        rendering_detail = "HTML 直出完整内容，无需 JS 即可获取数据"
+    elif is_hydrated:
+        rendering = "SSR + Hydration (同构渲染)"
+        rendering_detail = "服务端直出 HTML + 客户端 JS 激活交互"
+    elif html_text_length < 50:
+        rendering = "CSR (客户端渲染)"
+        rendering_detail = "HTML 为空壳，所有内容由 JS 动态生成"
+    else:
+        rendering = "混合渲染"
+        rendering_detail = "部分内容直出，部分由 JS 动态加载"
+
+    return {
+        "rendering": rendering,
+        "rendering_detail": rendering_detail,
+        "is_ssr": is_ssr,
+        "is_hydrated": is_hydrated,
+        "frameworks": frameworks,
+        "html_text_length": html_text_length,
+        "html_total_length": html_length,
+        "snapshot_node_count": snapshot_node_count,
+        "has_initial_state": has_initial_state,
+    }
+
+
+def _detect_page_features(raw_html: str, snapshot_text: str) -> dict:
+    """Detect page features like pagination, lazy loading, search, etc."""
+    features = {}
+
+    # Pagination
+    has_pagination = bool(re.search(r'page=\d|pagination|pager|pg-item|page-num|下一页|上一页|totalPage', raw_html, re.I))
+    pagination_pattern = ""
+    page_match = re.search(r'totalPage\s*=\s*(\d+)', raw_html)
+    if page_match:
+        pagination_pattern = f"共 {page_match.group(1)} 页, URL 参数 ?page=N"
+    elif has_pagination:
+        pagination_pattern = "检测到分页控件"
+    features["pagination"] = {"detected": has_pagination, "pattern": pagination_pattern}
+
+    # Lazy loading
+    has_lazy = bool(re.search(r'lazyload|lazy-load|data-src|data-original|loading="lazy"|IntersectionObserver', raw_html, re.I))
+    features["lazy_loading"] = has_lazy
+
+    # Infinite scroll
+    has_infinite = bool(re.search(r'infinite.?scroll|load.?more|scroll.?load|滚动加载|加载更多', raw_html, re.I))
+    features["infinite_scroll"] = has_infinite
+
+    # Search
+    has_search = bool(re.search(r'<input[^>]*type="search"|searchbox|search-input|搜索', raw_html, re.I))
+    if not has_search and snapshot_text:
+        has_search = bool(re.search(r'searchbox|textbox.*搜索|textbox.*search', snapshot_text, re.I))
+    features["search"] = has_search
+
+    # Login
+    has_login = bool(re.search(r'登录|login|sign.?in|log.?in', raw_html, re.I))
+    features["login_required"] = has_login
+
+    # WebSocket
+    has_websocket = bool(re.search(r'WebSocket|wss?://', raw_html, re.I))
+    features["websocket"] = has_websocket
+
+    # Filters
+    has_filters = bool(re.search(r'filter|筛选|排序|sort|tab-btn|sub-type', raw_html, re.I))
+    features["filters"] = has_filters
+
+    return features
+
+
+def _analyze_api_requests(requests_list: list) -> list:
+    """Identify likely data API requests from network captures."""
+    api_requests = []
+    skip_extensions = {'.js', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.eot', '.map'}
+    skip_domains = {'google', 'facebook', 'doubleclick', 'analytics', 'tracking', 'beacon', 'monitor', 'apm', 'sentry', 'log.'}
+
+    for req in requests_list:
+        url = req.get("url", "")
+        resource_type = (req.get("resourceType") or "").lower()
+        method = req.get("method", "GET")
+        status = req.get("status", 0)
+
+        # Skip static resources
+        if any(url.lower().endswith(ext) for ext in skip_extensions):
+            continue
+        # Skip tracking/analytics
+        if any(domain in url.lower() for domain in skip_domains):
+            continue
+        # Only interested in XHR/Fetch or unknown types with JSON-like URLs
+        if resource_type not in ("xhr", "fetch", ""):
+            continue
+        # Skip failed requests (0 status = pending)
+        if status and (status < 200 or status >= 400):
+            continue
+
+        api_requests.append({
+            "url": url[:200],
+            "method": method,
+            "status": status,
+            "type": resource_type,
+            "request_id": req.get("requestId", ""),
+            "has_body": req.get("hasBody", False),
+        })
+
+    return api_requests
+
+
+@cli.command()
+@click.argument("url")
+@click.option("--close", "auto_close", is_flag=True, default=False, help="Auto-close the tab after analysis.")
+@click.option("--wait", "wait_seconds", default=3, help="Seconds to wait for XHR requests after page load (default: 3).")
+@click.option("--depth", default=5, help="Snapshot tree depth (default: 5).")
+def analyze(url: str, auto_close: bool, wait_seconds: int, depth: int):
+    """分析页面结构，输出渲染类型、数据来源、关键接口等结构化报告。
+
+    自动完成：打开页面 → 获取无障碍树 → 抓取原始 HTML → 分析网络请求 → 输出报告。
+
+    \b
+    示例：
+      webcli analyze https://car.yiche.com/newcar/salesrank/
+      webcli analyze https://example.com --close     # 分析完自动关闭 tab
+      webcli analyze https://example.com --wait 5    # 等待 5 秒让异步请求完成
+    """
+    from urllib.parse import urlparse as _urlparse
+
+    parsed = _urlparse(url)
+    domain = parsed.netloc or parsed.hostname or url
+
+    print(f"📋 正在分析页面: {url}")
+    print(f"{'─' * 60}")
+
+    # Step 1: Open page with monitoring + snapshot
+    print("\n⏳ [1/4] 打开页面 + 网络监控 + 无障碍树...")
+    encoded_url = urllib.parse.quote(url, safe=':/?#[]@!$&\'()*+,;=')
+    path = f"/network/open-monitored?url={encoded_url}&snapshot=1&depth={depth}"
+    try:
+        result = http_get(path, timeout=30000)
+    except Exception as exc:
+        print(f"❌ 打开页面失败: {exc}")
+        return
+
+    target_id = result.get("targetId", "")
+    snapshot_text = result.get("snapshot", "")
+    final_url = result.get("url", url)
+    node_count = result.get("nodeCount", 0)
+
+    if final_url != url:
+        print(f"   ↳ 重定向到: {final_url}")
+    print(f"   ✅ targetId: {target_id}")
+    print(f"   ✅ 无障碍树: {node_count} 个节点")
+
+    # Step 2: Fetch raw HTML via curl (no browser)
+    print("\n⏳ [2/4] 获取原始 HTML (curl)...")
+    raw_html = _fetch_raw_html(final_url or url)
+    if raw_html:
+        print(f"   ✅ HTML 大小: {len(raw_html):,} 字节")
+    else:
+        print("   ⚠️  无法通过 curl 获取 HTML（可能需要登录或有反爬）")
+
+    # Step 3: Wait for XHR and collect network requests
+    print(f"\n⏳ [3/4] 等待异步请求 ({wait_seconds}s)...")
+    time.sleep(wait_seconds)
+    try:
+        net_result = http_get(f"/network/requests?target={target_id}&type=xhr,fetch", timeout=10000)
+        network_list = net_result.get("requests", [])
+        print(f"   ✅ 捕获 {len(network_list)} 个 XHR/Fetch 请求")
+    except Exception:
+        network_list = []
+        print("   ⚠️  获取网络请求失败")
+
+    # Step 4: Analyze and output report
+    print(f"\n⏳ [4/4] 生成分析报告...")
+
+    rendering_info = _detect_rendering(snapshot_text, raw_html)
+    page_features = _detect_page_features(raw_html, snapshot_text)
+    api_list = _analyze_api_requests(network_list)
+
+    print(f"\n{'═' * 60}")
+    print(f"📊 页面分析报告")
+    print(f"{'═' * 60}")
+
+    # Basic info
+    print(f"\n🔹 **URL**: {final_url or url}")
+    print(f"🔹 **域名**: {domain}")
+
+    # Rendering
+    print(f"\n### 渲染方式")
+    print(f"   类型: {rendering_info['rendering']}")
+    print(f"   说明: {rendering_info['rendering_detail']}")
+    if rendering_info['frameworks']:
+        print(f"   框架: {', '.join(rendering_info['frameworks'])}")
+    print(f"   HTML 文本量: {rendering_info['html_text_length']:,} 字符")
+    print(f"   HTML 总大小: {rendering_info['html_total_length']:,} 字节")
+    print(f"   无障碍树节点: {rendering_info['snapshot_node_count']} 个")
+
+    # Data source recommendation
+    print(f"\n### 数据来源判断")
+    if rendering_info['is_ssr'] and not api_list:
+        print(f"   ✅ 推荐方案: requests + 正则/BeautifulSoup 解析 HTML")
+        print(f"   原因: SSR 直出，数据在 HTML 中，无需浏览器")
+    elif api_list:
+        print(f"   ✅ 推荐方案: requests 直接调用 API 接口")
+        print(f"   原因: 发现 {len(api_list)} 个数据接口")
+    elif rendering_info['is_ssr']:
+        print(f"   ✅ 推荐方案: requests 解析 HTML + API 接口补充")
+        print(f"   原因: SSR 直出 + 有异步数据接口")
+    else:
+        print(f"   ⚠️  推荐方案: 浏览器自动化 (eval 提取 DOM)")
+        print(f"   原因: CSR 渲染，数据由 JS 动态生成")
+
+    # Page features
+    print(f"\n### 页面特征")
+    pagination = page_features.get("pagination", {})
+    print(f"   分页: {'✅ ' + pagination.get('pattern', '有') if pagination.get('detected') else '❌ 无'}")
+    print(f"   图片懒加载: {'✅' if page_features.get('lazy_loading') else '❌'}")
+    print(f"   无限滚动: {'✅' if page_features.get('infinite_scroll') else '❌'}")
+    print(f"   搜索框: {'✅' if page_features.get('search') else '❌'}")
+    print(f"   筛选控件: {'✅' if page_features.get('filters') else '❌'}")
+    print(f"   登录入口: {'✅' if page_features.get('login_required') else '❌'}")
+    print(f"   WebSocket: {'✅' if page_features.get('websocket') else '❌'}")
+
+    # API requests
+    if api_list:
+        print(f"\n### 关键接口 ({len(api_list)} 个)")
+        for i, api in enumerate(api_list[:10], 1):
+            status_str = str(api['status']) if api['status'] else "pending"
+            body_flag = " 📦" if api['has_body'] else ""
+            print(f"   {i}. [{status_str}] {api['method']} {api['url']}{body_flag}")
+            if api['request_id']:
+                print(f"      webcli network-request {target_id} {api['request_id']}")
+        if len(api_list) > 10:
+            print(f"   ... 还有 {len(api_list) - 10} 个接口")
+    else:
+        print(f"\n### 关键接口")
+        print(f"   未发现 XHR/Fetch 数据接口（纯 SSR 或请求尚未触发）")
+
+    # Next steps
+    print(f"\n### 后续操作")
+    print(f"   webcli snapshot {target_id}              # 查看完整无障碍树")
+    print(f"   webcli network-requests {target_id}      # 查看所有网络请求")
+    print(f"   webcli eval {target_id} \"...\"            # 执行 JS 提取数据")
+    print(f"   webcli close {target_id}                 # 关闭标签页")
+
+    # Auto close
+    if auto_close:
+        try:
+            http_get(f"/close?target={target_id}")
+            print(f"\n🧹 已自动关闭标签页 {target_id}")
+        except Exception:
+            print(f"\n⚠️  关闭标签页失败: {target_id}")
+    else:
+        print(f"\n💡 标签页保持打开: {target_id}")
+
+    # JSON output for programmatic use
+    report = {
+        "url": final_url or url,
+        "domain": domain,
+        "targetId": target_id,
+        "rendering": rendering_info,
+        "features": page_features,
+        "apis": api_list,
+        "snapshot_nodes": node_count,
+    }
+    print(f"\n# JSON: {json.dumps(report, ensure_ascii=False)}")
 
 
 @cli.command(name="network-requests")

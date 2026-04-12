@@ -92,7 +92,7 @@ check-deps
 | 搜索关键词、发现信息来源 | **WebSearch** |
 | URL 已知，提取页面内容 | **WebFetch** |
 | URL 已知，需要原始 HTML | **curl** |
-| 需要登录态 / 交互操作 / 动态渲染 / 非公开平台 | **浏览器 CDP** |
+| 需要登录态 / 交互操作 / spa 动态渲染 / 非公开平台 | **浏览器 CDP** |
 
 > WebSearch / WebFetch / curl 均不处理登录态，CDP 不要求 URL 已知，可从任意入口出发。
 
@@ -126,15 +126,52 @@ check-deps
 3. [ ] 经验沉淀 — 如有新发现（API/反爬/登录/操作），写入经验库
 ```
 
-**数据抓取场景：**
+### 渲染方式名词定义
+
+| 渲染方式 | 缩写 | 含义 | HTML 源码有数据？ | 需要浏览器？ |
+|----------|------|------|-------------------|-------------|
+| **服务端渲染** | SSR | 服务器返回完整 HTML，数据直出 | ✅ 有 | ❌ 不需要 |
+| **同构渲染** | SSR + Hydration | 服务端直出 HTML + 客户端 JS 激活交互（Next.js/Nuxt） | ✅ 有 | ❌ 不需要 |
+| **客户端渲染** | CSR | HTML 为空壳，所有内容由 JS 动态生成 | ❌ 没有 | ✅ 需要或找 API |
+| **静态生成** | SSG | 构建时生成 HTML 文件（博客、文档站） | ✅ 有 | ❌ 不需要 |
+| **混合渲染** | — | 部分内容直出，部分由 JS 异步加载 | ⚠️ 部分有 | 视情况 |
+
+**关键判断标准**：不看无障碍树（snapshot），看 **`curl` 拿到的原始 HTML 中是否有目标数据**。
+
+### 渲染判断决策树
+
+> **核心原则：snapshot 空 ≠ CSR。无障碍树不等于 HTML 源码，必须用 curl 二次验证。**
+
+很多网站虽然是 SSR 直出，但 CSS/JS 会对数据元素做延迟渲染或视觉隐藏，导致 Chrome 无障碍树只返回空的占位标签（如 `emphasis`），**看起来像 CSR 但实际数据就在 HTML 中**。
+
+判断流程：
 ```
-1. [ ] 检查站点经验 — webcli exp list {domain}，有则直接复用
-2. [ ] 页面探索 — open-monitored --snapshot 一步完成：打开页面 + 启动网络监控 + 获取无障碍树
-3. [ ] 渲染判断 — snapshot 有内容 → SSR 直出，优先 requests 解析；snapshot 空/少 → SPA，查 network-requests 找 API
-4. [ ] 数据提取 — 按优先级选择方案（见下方说明）
-5. [ ] 清理收尾 — 关闭 tab
-6. [ ] 经验沉淀 — 发现新接口或突破反爬，必须写入经验库
+snapshot 结果分析
+    ↓
+├── snapshot 有完整数据文本？
+│    ↓ 是
+│   ✅ SSR 直出，直接用 requests/curl 解析 HTML
+│
+└── snapshot 数据区域为空/只有占位标签？
+     ↓
+    ⚠️ 不要直接判定为 CSR！先用 curl 验证：
+     ↓
+    curl -s <url> | grep -c '关键数据词'
+     ↓
+    ├── grep 命中（HTML 中有数据）？
+    │    ↓ 是
+    │   ✅ 实际是 SSR，无障碍树误导了你
+    │   → 用 requests + 正则/BeautifulSoup 解析
+    │
+    └── grep 未命中（HTML 中确实没数据）？
+         ↓ 是
+        确认是 CSR，查 network-requests 找 JSON API
+         ↓
+        ├── 找到 API → 直接 requests 调用
+        └── 无 API → eval 从 DOM 提取
 ```
+
+**典型误判案例**：snapshot 只显示空的 `emphasis` 标签，但 `curl` 能拿到完整的 `<span class="rk-car-num">39,827辆</span>`，实际是 SSR 直出。
 
 ### 数据提取方案选择优先级
 
@@ -153,15 +190,15 @@ check-deps
 │   使用 requests + BeautifulSoup/lxml 解析 HTML
 │    └── 轻量，无需启动浏览器
 │
-└── 必须浏览器交互（JS 渲染、动态加载、需要登录等）？
+└── 必须浏览器交互（CSR 渲染、需要登录等）？
      ↓ 是
-    使用 Playwright/Selenium
+    使用 webcli eval 从 DOM 提取 / 浏览器自动化
      └── 最重，但某些场景必需
 ```
 
 **关键原则**：
 - **SSR 页面 ≠ 需要浏览器**：如果页面是服务端渲染，数据在 HTML 中，直接用 `requests` 获取 HTML 后解析即可，**不需要启动浏览器**
-- **浏览器自动化是最后手段**：只有在必须 JS 渲染、动态加载、或需要模拟用户交互时才使用 Playwright/Selenium
+- **浏览器自动化是最后手段**：只有在 CSR 渲染、需要模拟用户交互时才使用浏览器
 
 
 ### 第二步：门禁规则
@@ -204,16 +241,22 @@ TodoList 标记「经验沉淀」为 completed
 
 ### 进入页面后的核心策略
 
-**第一步：一步到位进入页面**
+**第一步：进入页面并获取 TARGET**
 
-推荐用 `--snapshot` 选项，导航的同时获取页面无障碍树，省去单独调 `snapshot` 的一步：
+> ⚠️ **必须先获取 `TARGET`（targetId）**：后续所有操作都依赖 `$TARGET` 变量。`--snapshot` 输出的第一行就是 `# targetId: xxx`，务必从中提取并赋值。推荐用 `--id-only` 先获取 targetId，再单独获取 snapshot。
 
 ```bash
-# 数据抓取场景（需要抓包）：导航 + 网络监控 + 无障碍树，一步完成
-webcli open-monitored https://example.com --snapshot
+# 推荐：先获取 targetId，再获取 snapshot（两步走，最可靠）
+TARGET=$(webcli new https://example.com --id-only)
+webcli snapshot $TARGET
 
-# 普通浏览/交互场景（不需要抓包）：导航 + 无障碍树
+# 需要抓包时：
+TARGET=$(webcli open-monitored https://example.com --id-only)
+webcli snapshot $TARGET
+
+# 一步到位（也可以，targetId 在输出第一行）：
 webcli new https://example.com --snapshot
+webcli open-monitored https://example.com --snapshot
 
 # 已有 tab 内导航：
 webcli navigate $TARGET https://other-page.com --snapshot
@@ -245,20 +288,24 @@ webcli navigate $TARGET https://other-page.com --snapshot
 
 ```bash
 webcli --help / webcli <command> --help   # 查看命令列表/详细用法
+webcli --version                          # 查看当前版本
 
 # 导航命令（均支持 --snapshot 一步获取无障碍树）
 webcli new https://example.com --snapshot           # 新建 tab + 获取无障碍树（推荐）
-webcli open-monitored https://example.com --snapshot # 新建 tab + 网络监控 + 无障碍树（数据抓取推荐）
+webcli open-monitored https://example.com --snapshot # 新建 tab + 网络监控 + 无障碍树
 webcli navigate $TARGET https://url --snapshot       # 在已有 tab 导航 + 无障碍树
 TARGET=$(webcli new https://example.com --id-only)   # 仅获取 targetId（用于 shell 赋值）
 
-# 页面分析
+# 页面内容
 webcli snapshot $TARGET                   # 单独获取无障碍树
 webcli eval $TARGET "document.title"      # 执行 JS（自动处理 let/const 作用域）
 webcli screenshot $TARGET ./shot.png      # 截图
 
 # 交互操作
-webcli click $TARGET "button.submit"      # 点击元素
+webcli click $TARGET "button.submit"      # 点击元素（CSS 选择器）
+webcli click $TARGET "[@e27]"             # 点击元素（snapshot ref）
+webcli click $TARGET "@e27"               # 同上，方括号可省略
+webcli click $TARGET "[@e27]" --snapshot   # 点击后自动获取新的无障碍树
 webcli scroll $TARGET bottom              # 滚动到底部（触发懒加载）
 webcli close $TARGET                      # 关闭 tab
 ```
@@ -300,11 +347,23 @@ webcli close $TARGET
 
 ### 元素定位与点击
 
-`webcli click` 使用标准 CSS 选择器，**不支持** `:contains()` 等 jQuery 非标准伪类。按文字定位时优先用语义化命令：
-
+**优先用 snapshot ref 点击**（最精确，从 snapshot 输出中获取 ref）：
 ```bash
-webcli find <targetId> text "下一页" click          # 按文字点击（推荐）
+webcli click <targetId> "[@e27]"                    # 用 snapshot ref 点击（推荐）
+webcli click <targetId> "[@e27]" --snapshot          # 点击后自动获取新的无障碍树
+```
+
+**按语义定位**（不知道 ref 时使用）：
+```bash
+webcli find <targetId> text "下一页" click          # 按文字点击（包含匹配）
+webcli find <targetId> text "排行榜" click --exact   # 精确匹配（避免匹配到"资讯排行榜"等）
+webcli find <targetId> text "登录" click --snapshot   # 点击后自动获取无障碍树
 webcli find <targetId> role button click --name "提交"  # 按角色+名称
+```
+
+**CSS 选择器**（`webcli click` 也支持标准 CSS 选择器，**不支持** `:contains()` 等 jQuery 非标准伪类）：
+```bash
+webcli click <targetId> "button.submit"             # CSS 选择器
 webcli eval <targetId> "Array.from(document.querySelectorAll('a')).find(el => el.textContent.includes('下一页'))?.click()"  # JS 兜底
 ```
 
@@ -535,13 +594,9 @@ webcli exp list / webcli exp list yiche.com          # 列出经验
 webcli exp api yiche.com rank                        # 查看接口经验
 webcli exp login taobao.com main                     # 查看登录经验
 webcli exp action xiaohongshu.com post               # 查看操作经验
-webcli exp action sls query-log                      # 查看跨站点流程经验
 webcli exp anti-crawl cloudflare                     # 查看反爬经验
 webcli exp show api yiche.com rank                   # 查看（完整格式）
 webcli exp save api yiche.com rank                   # 从 stdin 保存
-webcli exp edit api yiche.com rank                   # 用编辑器打开
-webcli exp rm api yiche.com rank                     # 删除经验（有确认提示）
-webcli exp rm api yiche.com rank --yes               # 跳过确认直接删除
 webcli exp save action sls query-log                 # 保存跨站点流程经验
 webcli exp update api yiche.com rank --last-used-status success  # 更新使用状态
 webcli exp update api yiche.com rank --last-used-status failed   # 更新为失败状态

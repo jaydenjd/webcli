@@ -52,6 +52,9 @@ pending_dialogs: Dict[str, dict] = {}
 script_captures: Dict[str, list] = {}
 script_id_map: Dict[str, dict] = {}  # scriptId -> {targetId, url, source}
 
+# Snapshot element refs: targetId -> {ref -> backendDOMNodeId}
+snapshot_refs: Dict[str, Dict[str, int]] = {}
+
 
 async def check_port(port: int, host: str = CHROME_HOST, timeout: float = 2.0) -> bool:
     """Check if a port is open via TCP connection."""
@@ -399,7 +402,10 @@ async def _enable_page_events(session_id: str) -> None:
         pass
 
 async def ensure_session(target_id: str) -> str:
-    """Ensure a session exists for the given target."""
+    """Ensure a session exists for the given target.
+
+    Raises aiohttp_web.HTTPNotFound if the target does not exist or cannot be attached.
+    """
     if target_id in sessions:
         return sessions[target_id]
     
@@ -413,7 +419,13 @@ async def ensure_session(target_id: str) -> str:
         asyncio.ensure_future(_enable_page_events(session_id))
         return session_id
     
-    raise RuntimeError(f"Attach failed: {resp.get('error', 'Unknown error')}")
+    error_msg = resp.get("error", {})
+    if isinstance(error_msg, dict):
+        error_msg = error_msg.get("message", str(error_msg))
+    raise aiohttp_web.HTTPNotFound(
+        text=json.dumps({"error": f"Target not found or cannot attach: {target_id}", "detail": str(error_msg)}),
+        content_type="application/json",
+    )
 
 
 async def enable_port_guard(session_id: str) -> None:
@@ -523,7 +535,9 @@ async def handle_new(request: aiohttp_web.Request) -> aiohttp_web.Response:
             session_id = await ensure_session(target_id)
             await wait_for_load(session_id)
             if want_snapshot:
-                result.update(await _build_snapshot(session_id, snapshot_depth))
+                snap = await _build_snapshot(session_id, snapshot_depth)
+                snapshot_refs[target_id] = snap.get("refs", {})
+                result.update(snap)
         except Exception:
             pass  # Non-fatal
 
@@ -561,7 +575,9 @@ async def handle_navigate(request: aiohttp_web.Request) -> aiohttp_web.Response:
     current_url = url_resp.get("result", {}).get("result", {}).get("value", url)
     result: dict = {"url": current_url, "ok": True}
     if want_snapshot:
-        result.update(await _build_snapshot(session_id, snapshot_depth))
+        snap = await _build_snapshot(session_id, snapshot_depth)
+        snapshot_refs[target_id] = snap.get("refs", {})
+        result.update(snap)
     return aiohttp_web.json_response(result)
 
 
@@ -638,8 +654,44 @@ async def handle_eval(request: aiohttp_web.Request) -> aiohttp_web.Response:
         return aiohttp_web.json_response({"error": f"Internal error: {exc}"}, status=500)
 
 
+_REF_PATTERN = re.compile(r"^\[?(@e\d+)\]?$")
+
+async def _click_by_ref(session_id: str, target_id: str, ref: str) -> aiohttp_web.Response:
+    """Click an element by its snapshot ref (e.g. @e27)."""
+    refs = snapshot_refs.get(target_id, {})
+    backend_node_id = refs.get(ref)
+    if backend_node_id is None:
+        return aiohttp_web.json_response(
+            {"error": f"Ref {ref} not found. Run 'webcli snapshot' first to refresh refs."}, status=400
+        )
+
+    await send_cdp("DOM.enable", {}, session_id)
+    resolve_resp = await send_cdp("DOM.resolveNode", {"backendNodeId": backend_node_id}, session_id)
+    object_id = resolve_resp.get("result", {}).get("object", {}).get("objectId")
+    if not object_id:
+        return aiohttp_web.json_response(
+            {"error": f"Ref {ref} (backendNodeId={backend_node_id}) could not be resolved. Page may have changed."}, status=400
+        )
+
+    click_resp = await send_cdp("Runtime.callFunctionOn", {
+        "objectId": object_id,
+        "functionDeclaration": """function() {
+            this.scrollIntoView({ block: 'center' });
+            this.click();
+            return { clicked: true, ref: arguments[0], tag: this.tagName, text: (this.textContent || '').slice(0, 100) };
+        }""",
+        "arguments": [{"value": ref}],
+        "returnByValue": True,
+    }, session_id)
+
+    val = click_resp.get("result", {}).get("result", {}).get("value", {})
+    if isinstance(val, dict) and val.get("clicked"):
+        return aiohttp_web.json_response(val)
+    return aiohttp_web.json_response(click_resp.get("result", {}))
+
+
 async def handle_click(request: aiohttp_web.Request) -> aiohttp_web.Response:
-    """Click an element using JS."""
+    """Click an element using JS. Supports CSS selector or snapshot ref ([@eN])."""
     await connect()
     target_id = request.query["target"]
     session_id = await ensure_session(target_id)
@@ -647,8 +699,12 @@ async def handle_click(request: aiohttp_web.Request) -> aiohttp_web.Response:
     selector = await request.text()
     if not selector:
         return aiohttp_web.json_response(
-            {"error": "POST body requires CSS selector"}, status=400
+            {"error": "POST body requires CSS selector or snapshot ref (e.g. @e27)"}, status=400
         )
+
+    ref_match = _REF_PATTERN.match(selector.strip())
+    if ref_match:
+        return await _click_by_ref(session_id, target_id, ref_match.group(1))
     
     js = f"""(() => {{
         const el = document.querySelector({json.dumps(selector)});
@@ -1130,13 +1186,72 @@ async def _build_snapshot(session_id: str, max_depth: int = 3) -> dict:
     """Build accessibility tree snapshot as a reusable dict.
 
     Returns {"snapshot": str, "refs": dict, "nodeCount": int}.
+    Enhancements:
+    - link elements show their href URL
+    - hidden/offscreen elements are filtered out
+    - duplicate role+name elements get [nth=N] markers
     """
     await send_cdp("Accessibility.enable", {}, session_id)
     resp = await send_cdp("Accessibility.getFullAXTree", {}, session_id)
     nodes = resp.get("result", {}).get("nodes", [])
 
+    # Build backendDOMNodeId -> href map via DOM.getFlattenedDocument (single CDP call)
+    link_href_map: Dict[int, str] = {}
+    try:
+        await send_cdp("DOM.enable", {}, session_id)
+        flat_resp = await send_cdp("DOM.getFlattenedDocument", {"depth": -1}, session_id)
+        flat_nodes = flat_resp.get("result", {}).get("nodes", [])
+        for dom_node in flat_nodes:
+            if dom_node.get("nodeName", "").upper() != "A":
+                continue
+            backend_id = dom_node.get("backendNodeId")
+            attrs = dom_node.get("attributes", [])
+            href = ""
+            for i in range(0, len(attrs) - 1, 2):
+                if attrs[i] == "href":
+                    href = attrs[i + 1]
+                    break
+            if backend_id and href and not href.startswith("javascript:"):
+                link_href_map[backend_id] = href
+    except Exception:
+        pass  # Non-fatal: snapshot still works without URLs
+
     ref_counter = [0]
     ref_map = {}
+    # Track role+name occurrences for nth markers
+    name_counter: Dict[str, int] = {}  # "role:name" -> count seen so far
+    name_totals: Dict[str, int] = {}   # "role:name" -> total count (pre-scanned)
+
+    # Roles to skip (noise reduction)
+    _SKIP_ROLES = frozenset({"none", "generic", "InlineTextBox", "StaticText",
+                             "LineBreak", "paragraph", "Section", "group"})
+
+    # Pre-scan: count role+name occurrences for nth markers
+    def _count_names(node: dict, depth: int = 0):
+        role = node.get("role", {}).get("value", "")
+        name_obj = node.get("name", {})
+        name = name_obj.get("value", "") if isinstance(name_obj, dict) else ""
+        ignored = node.get("ignored", False)
+
+        if not ignored and role not in _SKIP_ROLES and name:
+            key = f"{role}:{name}"
+            name_totals[key] = name_totals.get(key, 0) + 1
+
+        if depth < max_depth:
+            for child_id in node.get("childIds", []):
+                child = next((n for n in nodes if n.get("nodeId") == child_id), None)
+                if child:
+                    _count_names(child, depth + (0 if ignored or role in _SKIP_ROLES else 1))
+
+    if nodes:
+        _count_names(nodes[0])
+
+    def _is_hidden(node: dict) -> bool:
+        """Check if AX node is marked as hidden."""
+        for prop in node.get("properties", []):
+            if prop.get("name") == "hidden" and prop.get("value", {}).get("value") is True:
+                return True
+        return False
 
     def node_to_text(node: dict, depth: int = 0) -> list:
         role = node.get("role", {}).get("value", "")
@@ -1144,7 +1259,8 @@ async def _build_snapshot(session_id: str, max_depth: int = 3) -> dict:
         name = name_obj.get("value", "") if isinstance(name_obj, dict) else ""
         ignored = node.get("ignored", False)
 
-        if ignored or role in ("none", "generic", "InlineTextBox", "StaticText"):
+        # Filter: skip ignored, noise roles, and hidden elements
+        if ignored or role in _SKIP_ROLES or _is_hidden(node):
             if depth >= max_depth:
                 return []
             lines = []
@@ -1156,16 +1272,42 @@ async def _build_snapshot(session_id: str, max_depth: int = 3) -> dict:
 
         ref_counter[0] += 1
         ref = f"@e{ref_counter[0]}"
-        ref_map[ref] = node.get("backendDOMNodeId")
+        backend_node_id = node.get("backendDOMNodeId")
+        ref_map[ref] = backend_node_id
 
         indent = "  " * depth
         label = f"{indent}[{ref}] {role}"
         if name:
             label += f' "{name}"'
 
+        # Nth marker for duplicate role+name
+        if name:
+            key = f"{role}:{name}"
+            total = name_totals.get(key, 1)
+            if total > 1:
+                idx = name_counter.get(key, 0)
+                name_counter[key] = idx + 1
+                if idx > 0:
+                    label += f" [nth={idx}]"
+
         value_obj = node.get("value", {})
         if isinstance(value_obj, dict) and value_obj.get("value"):
             label += f' value="{value_obj["value"]}"'
+
+        # Append URL for link elements (truncate very long URLs)
+        if role == "link" and backend_node_id and backend_node_id in link_href_map:
+            href = link_href_map[backend_node_id]
+            if len(href) > 120:
+                # Keep scheme + host + first part of path, truncate the rest
+                from urllib.parse import urlparse
+                parsed = urlparse(href) if '://' in href else None
+                if parsed and parsed.netloc:
+                    truncated = f"{parsed.scheme}://{parsed.netloc}{parsed.path[:60]}..."
+                else:
+                    truncated = href[:120] + "..."
+                label += f' /url: {truncated}'
+            else:
+                label += f' /url: {href}'
 
         lines = [label]
         if depth < max_depth:
@@ -1189,6 +1331,7 @@ async def handle_snapshot(request: aiohttp_web.Request) -> aiohttp_web.Response:
     session_id = await ensure_session(target_id)
     max_depth = int(request.query.get("depth", "3"))
     result = await _build_snapshot(session_id, max_depth)
+    snapshot_refs[target_id] = result.get("refs", {})
     return aiohttp_web.json_response(result)
 
 
@@ -1713,9 +1856,20 @@ async def handle_find(request: aiohttp_web.Request) -> aiohttp_web.Response:
 
     elif by == "text":
         if exact:
-            find_js = f"""Array.from(document.querySelectorAll('*')).filter(el => el.children.length === 0 && el.textContent.trim() === {json.dumps(value)})[{nth}]"""
+            find_js = f"""Array.from(document.querySelectorAll('*')).filter(el => {{
+                if (!el.offsetParent && el.tagName !== 'BODY' && el.tagName !== 'HTML') return false;
+                return el.textContent.trim() === {json.dumps(value)};
+            }})[{nth}]"""
         else:
-            find_js = f"""Array.from(document.querySelectorAll('*')).filter(el => el.children.length === 0 && el.textContent.trim().includes({json.dumps(value)}))[{nth}]"""
+            find_js = f"""(() => {{
+                const target = {json.dumps(value)};
+                const visible = el => el.offsetParent || el.tagName === 'BODY' || el.tagName === 'HTML';
+                const all = Array.from(document.querySelectorAll('*')).filter(el => visible(el) && el.textContent.trim().includes(target));
+                const exactMatches = all.filter(el => el.textContent.trim() === target);
+                if (exactMatches.length > {nth}) return exactMatches[{nth}];
+                all.sort((a, b) => a.textContent.trim().length - b.textContent.trim().length);
+                return all[{nth}] || null;
+            }})()"""
 
     elif by == "label":
         find_js = f"""(() => {{
