@@ -512,17 +512,22 @@ async def handle_new(request: aiohttp_web.Request) -> aiohttp_web.Response:
     """Create a new background tab."""
     await connect()
     url = request.query.get("url", "about:blank")
+    want_snapshot = request.query.get("snapshot", "") == "1"
+    snapshot_depth = int(request.query.get("depth", "3"))
     resp = await send_cdp("Target.createTarget", {"url": url, "background": True})
     target_id = resp["result"]["targetId"]
-    
+    result: dict = {"targetId": target_id}
+
     if url != "about:blank":
         try:
             session_id = await ensure_session(target_id)
             await wait_for_load(session_id)
+            if want_snapshot:
+                result.update(await _build_snapshot(session_id, snapshot_depth))
         except Exception:
             pass  # Non-fatal
-    
-    return aiohttp_web.json_response({"targetId": target_id})
+
+    return aiohttp_web.json_response(result)
 
 
 async def handle_close(request: aiohttp_web.Request) -> aiohttp_web.Response:
@@ -545,6 +550,8 @@ async def handle_navigate(request: aiohttp_web.Request) -> aiohttp_web.Response:
     await connect()
     target_id = request.query["target"]
     url = request.query["url"]
+    want_snapshot = request.query.get("snapshot", "") == "1"
+    snapshot_depth = int(request.query.get("depth", "3"))
     session_id = await ensure_session(target_id)
     await send_cdp("Page.navigate", {"url": url}, session_id)
     await wait_for_load(session_id)
@@ -552,7 +559,10 @@ async def handle_navigate(request: aiohttp_web.Request) -> aiohttp_web.Response:
         "expression": "location.href", "returnByValue": True,
     }, session_id)
     current_url = url_resp.get("result", {}).get("result", {}).get("value", url)
-    return aiohttp_web.json_response({"url": current_url, "ok": True})
+    result: dict = {"url": current_url, "ok": True}
+    if want_snapshot:
+        result.update(await _build_snapshot(session_id, snapshot_depth))
+    return aiohttp_web.json_response(result)
 
 
 async def handle_back(request: aiohttp_web.Request) -> aiohttp_web.Response:
@@ -565,6 +575,25 @@ async def handle_back(request: aiohttp_web.Request) -> aiohttp_web.Response:
     return aiohttp_web.json_response({"ok": True})
 
 
+import re
+
+# Pattern to detect top-level let/const/class declarations that would cause
+# "Identifier has already been declared" errors on repeated evaluation.
+_NEEDS_IIFE_RE = re.compile(
+    r"(?:^|\n)\s*(?:let |const |class )\s*\w",
+)
+
+def _maybe_wrap_iife(expression: str) -> str:
+    """Wrap expression in an async IIFE if it contains top-level let/const/class declarations.
+
+    CDP Runtime.evaluate shares a single global scope per page, so repeated
+    evaluations with let/const/class will throw SyntaxError.  Wrapping in an
+    IIFE creates a fresh block scope each time.
+    """
+    if _NEEDS_IIFE_RE.search(expression):
+        return f"(async () => {{\n{expression}\n}})()"
+    return expression
+
 async def handle_eval(request: aiohttp_web.Request) -> aiohttp_web.Response:
     """Execute JavaScript."""
     try:
@@ -574,6 +603,7 @@ async def handle_eval(request: aiohttp_web.Request) -> aiohttp_web.Response:
 
         body = await request.text()
         expr = body or request.query.get("expr", "document.title")
+        expr = _maybe_wrap_iife(expr)
 
         resp = await send_cdp("Runtime.evaluate", {
             "expression": expr,
@@ -1096,18 +1126,15 @@ async def handle_is(request: aiohttp_web.Request) -> aiohttp_web.Response:
     return aiohttp_web.json_response({"result": value, "check": check, "selector": selector})
 
 
-async def handle_snapshot(request: aiohttp_web.Request) -> aiohttp_web.Response:
-    """Get accessibility tree with element refs for AI navigation."""
-    await connect()
-    target_id = request.query["target"]
-    session_id = await ensure_session(target_id)
-    max_depth = int(request.query.get("depth", "3"))
+async def _build_snapshot(session_id: str, max_depth: int = 3) -> dict:
+    """Build accessibility tree snapshot as a reusable dict.
 
+    Returns {"snapshot": str, "refs": dict, "nodeCount": int}.
+    """
     await send_cdp("Accessibility.enable", {}, session_id)
     resp = await send_cdp("Accessibility.getFullAXTree", {}, session_id)
     nodes = resp.get("result", {}).get("nodes", [])
 
-    # Build compact ref-indexed tree for AI consumption
     ref_counter = [0]
     ref_map = {}
 
@@ -1136,7 +1163,6 @@ async def handle_snapshot(request: aiohttp_web.Request) -> aiohttp_web.Response:
         if name:
             label += f' "{name}"'
 
-        # Add value for inputs
         value_obj = node.get("value", {})
         if isinstance(value_obj, dict) and value_obj.get("value"):
             label += f' value="{value_obj["value"]}"'
@@ -1150,13 +1176,20 @@ async def handle_snapshot(request: aiohttp_web.Request) -> aiohttp_web.Response:
         return lines
 
     tree_lines = node_to_text(nodes[0]) if nodes else []
-    tree_text = "\n".join(tree_lines)
-
-    return aiohttp_web.json_response({
-        "snapshot": tree_text,
+    return {
+        "snapshot": "\n".join(tree_lines),
         "refs": ref_map,
         "nodeCount": len(nodes),
-    })
+    }
+
+async def handle_snapshot(request: aiohttp_web.Request) -> aiohttp_web.Response:
+    """Get accessibility tree with element refs for AI navigation."""
+    await connect()
+    target_id = request.query["target"]
+    session_id = await ensure_session(target_id)
+    max_depth = int(request.query.get("depth", "3"))
+    result = await _build_snapshot(session_id, max_depth)
+    return aiohttp_web.json_response(result)
 
 
 async def handle_console(request: aiohttp_web.Request) -> aiohttp_web.Response:
@@ -1806,6 +1839,9 @@ async def handle_open_monitored(request: aiohttp_web.Request) -> aiohttp_web.Res
         "maxResourceBufferSize": 5 * 1024 * 1024,
     }, session_id)
 
+    want_snapshot = request.query.get("snapshot", "") == "1"
+    snapshot_depth = int(request.query.get("depth", "3"))
+
     # 3. Navigate to the target URL and wait for load.
     if url != "about:blank":
         await send_cdp("Page.navigate", {"url": url}, session_id)
@@ -1814,7 +1850,10 @@ async def handle_open_monitored(request: aiohttp_web.Request) -> aiohttp_web.Res
         except Exception:
             pass  # Non-fatal — tab is open and monitoring is active
 
-    return aiohttp_web.json_response({"targetId": target_id, "capturing": True, "url": url})
+    result: dict = {"targetId": target_id, "capturing": True, "url": url}
+    if want_snapshot:
+        result.update(await _build_snapshot(session_id, snapshot_depth))
+    return aiohttp_web.json_response(result)
 
 
 async def handle_network_stop(request: aiohttp_web.Request) -> aiohttp_web.Response:
@@ -1843,6 +1882,7 @@ async def handle_network_requests(request: aiohttp_web.Request) -> aiohttp_web.R
     type_filter = request.query.get("type", "")
     status_filter = request.query.get("status", "")
     limit = int(request.query.get("limit", "0"))
+    want_body = request.query.get("body", "") == "1"
 
     if url_filter:
         records = [r for r in records if url_filter.lower() in (r.get("url") or "").lower()]
@@ -1866,20 +1906,38 @@ async def handle_network_requests(request: aiohttp_web.Request) -> aiohttp_web.R
         records = [r for r in records if match_status(r.get("status"))]
 
     total = len(records)
-    # Apply limit — take the most recent N records
     if limit > 0:
         records = records[-limit:]
 
-    # Return summary (exclude body for list view)
-    summary = [{
-        "requestId": r.get("requestId"),
-        "url": r.get("url"),
-        "method": r.get("method"),
-        "resourceType": r.get("resourceType"),
-        "status": r.get("status"),
-        "mimeType": r.get("mimeType"),
-        "hasBody": r.get("_loaded", False),
-    } for r in records]
+    # Optionally fetch response bodies in batch
+    session_id = None
+    if want_body:
+        await connect()
+        session_id = await ensure_session(target_id)
+
+    summary = []
+    for r in records:
+        item = {
+            "requestId": r.get("requestId"),
+            "url": r.get("url"),
+            "method": r.get("method"),
+            "resourceType": r.get("resourceType"),
+            "status": r.get("status"),
+            "mimeType": r.get("mimeType"),
+            "hasBody": r.get("_loaded", False),
+        }
+        if want_body and r.get("_loaded"):
+            fetch_session = r.get("_sessionId") or session_id
+            try:
+                body_resp = await send_cdp("Network.getResponseBody", {
+                    "requestId": r.get("requestId"),
+                }, fetch_session)
+                body_result = body_resp.get("result", {})
+                item["responseBody"] = body_result.get("body", "")
+                item["base64Encoded"] = body_result.get("base64Encoded", False)
+            except Exception as exc:
+                item["bodyError"] = str(exc)
+        summary.append(item)
 
     return aiohttp_web.json_response({"requests": summary, "total": total, "returned": len(summary)})
 

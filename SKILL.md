@@ -129,10 +129,11 @@ check-deps
 **数据抓取场景：**
 ```
 1. [ ] 检查站点经验 — webcli exp list {domain}，有则直接复用
-2. [ ] 页面分析 — open-monitored / network-start 监控接口
-3. [ ] 数据提取 — 按优先级选择方案（见下方说明）
-4. [ ] 清理收尾 — 关闭 tab
-5. [ ] 经验沉淀 — 发现新接口或突破反爬，必须写入经验库
+2. [ ] 页面探索 — open-monitored --snapshot 一步完成：打开页面 + 启动网络监控 + 获取无障碍树
+3. [ ] 渲染判断 — snapshot 有内容 → SSR 直出，优先 requests 解析；snapshot 空/少 → SPA，查 network-requests 找 API
+4. [ ] 数据提取 — 按优先级选择方案（见下方说明）
+5. [ ] 清理收尾 — 关闭 tab
+6. [ ] 经验沉淀 — 发现新接口或突破反爬，必须写入经验库
 ```
 
 ### 数据提取方案选择优先级
@@ -203,13 +204,36 @@ TodoList 标记「经验沉淀」为 completed
 
 ### 进入页面后的核心策略
 
-**了解页面结构**：优先 `webcli snapshot` 获取无障碍树；SPA 应用 snapshot 可能无文字内容，此时用 `webcli eval` 直接提取数据。
+**第一步：一步到位进入页面**
 
-**读数据（优先）**：`network-start` + 触发操作 + `network-requests` 拿 API 响应 JSON，比解析 DOM 更稳定。
-- ⚠️ **时序关键**：`network-start` 必须在页面导航**前**执行
-- 正确流程：`new about:blank` → `network-start` → `navigate` → `wait` → `network-requests`
+推荐用 `--snapshot` 选项，导航的同时获取页面无障碍树，省去单独调 `snapshot` 的一步：
+
+```bash
+# 数据抓取场景（需要抓包）：导航 + 网络监控 + 无障碍树，一步完成
+webcli open-monitored https://example.com --snapshot
+
+# 普通浏览/交互场景（不需要抓包）：导航 + 无障碍树
+webcli new https://example.com --snapshot
+
+# 已有 tab 内导航：
+webcli navigate $TARGET https://other-page.com --snapshot
+```
+
+**第二步：根据 snapshot 结果判断渲染方式**
+
+| snapshot 结果 | 判断 | 下一步 |
+|--------------|------|--------|
+| 有丰富文字内容 | **SSR 直出** — 数据在 HTML 中 | 优先 `requests` + HTML 解析，不需要浏览器 |
+| 几乎空白 / 只有骨架 | **SPA 动态渲染** — 数据由 JS 加载 | 查 `network-requests --type xhr,fetch` 找 API |
+| 有内容但不完整 | **SSR + JS 混合** | 先尝试 HTML 解析，不够再找 API 补充 |
+
+**第三步：读数据**
+
+- **找到 API**：`network-requests --type xhr,fetch` 查看接口列表，`network-request <requestId> --body` 查看响应
+- **API 可直接调用**：用 `requests/curl` 直接请求，最轻量
+- **需要浏览器内提取**：`webcli eval` 用 JS 从 DOM 提取数据
+- ⚠️ **时序关键**：网络监控必须在页面导航**前**启动，`open-monitored` 已自动处理
 - **注意**：network 命令用连字符 `-` 不是下划线 `_`
-- SPA 一步到位：`open-monitored <url>` = 创建 tab + 启动监控 + 导航，再用 `network-requests --type xhr,fetch` 找接口
 
 **读图**：`webcli screenshot` 截图后，`read_file` 读取图片路径即可视觉分析；`webcli eval` 从 DOM 直接拿图片 URL 比全页截图精准。
 
@@ -222,15 +246,20 @@ TodoList 标记「经验沉淀」为 completed
 ```bash
 webcli --help / webcli <command> --help   # 查看命令列表/详细用法
 
-webcli targets                            # 列出已打开的 tab
-TARGET=$(webcli new https://example.com --id-only)  # 新建 tab
-webcli open-monitored https://example.com # 新建 tab + 启动网络监控（SPA 首选）
-webcli eval $TARGET "document.title"      # 执行 JS（最常用）
-webcli snapshot $TARGET                   # 获取无障碍树（了解页面结构）
+# 导航命令（均支持 --snapshot 一步获取无障碍树）
+webcli new https://example.com --snapshot           # 新建 tab + 获取无障碍树（推荐）
+webcli open-monitored https://example.com --snapshot # 新建 tab + 网络监控 + 无障碍树（数据抓取推荐）
+webcli navigate $TARGET https://url --snapshot       # 在已有 tab 导航 + 无障碍树
+TARGET=$(webcli new https://example.com --id-only)   # 仅获取 targetId（用于 shell 赋值）
+
+# 页面分析
+webcli snapshot $TARGET                   # 单独获取无障碍树
+webcli eval $TARGET "document.title"      # 执行 JS（自动处理 let/const 作用域）
 webcli screenshot $TARGET ./shot.png      # 截图
-webcli scroll $TARGET bottom              # 滚动到底部（触发懒加载）
+
+# 交互操作
 webcli click $TARGET "button.submit"      # 点击元素
-webcli navigate $TARGET https://url       # 在当前 tab 导航
+webcli scroll $TARGET bottom              # 滚动到底部（触发懒加载）
 webcli close $TARGET                      # 关闭 tab
 ```
 

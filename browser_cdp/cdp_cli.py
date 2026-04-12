@@ -62,19 +62,20 @@ def _do_request(req: urllib.request.Request, timeout_seconds: float, retries: in
             if exc.code == 404:
                 raise RuntimeError(f"Not found: {error_msg}") from exc
             if exc.code in (500, 503, 504):
-                # Check if this is a Chrome not running error
-                if "Chrome" in error_msg or "remote debugging" in error_msg.lower():
-                    raise RuntimeError(
-                        f"Chrome 未运行。请手动打开浏览器\n\n"
-                    ) from exc
-                # For 500 errors without retries, provide a friendly error message
+                lower_msg = error_msg.lower()
+                is_chrome_down = any(kw in lower_msg for kw in (
+                    "chrome", "remote debugging", "websocket", "connection refused",
+                    "not connected", "no browser",
+                ))
+                if is_chrome_down:
+                    raise RuntimeError("Chrome 未运行或连接已断开。请手动打开浏览器") from exc
+                if exc.code == 503:
+                    raise RuntimeError(f"Proxy/Chrome not ready: {error_msg}") from exc
+                if exc.code == 504:
+                    raise RuntimeError(f"CDP command timed out: {error_msg}") from exc
                 if retries == 0:
-                    raise RuntimeError(
-                        f"Chrome 未运行。请手动打开浏览器\n\n"
-                    ) from exc
-                last_error = RuntimeError(
-                    f"{'Proxy internal error' if exc.code == 500 else 'Proxy/Chrome not ready'}: {error_msg}"
-                )
+                    raise RuntimeError(f"Internal error: {error_msg}") from exc
+                last_error = RuntimeError(f"Proxy internal error: {error_msg}")
                 if attempt < retries:
                     click.echo(f"[retry {attempt + 1}/{retries}] transient {exc.code}, retrying…", err=True)
             else:
@@ -293,29 +294,46 @@ def tabs(target_type: str):
 @cli.command()
 @click.argument("url")
 @click.option("--id-only", is_flag=True, default=False, help="Print only the targetId (useful for shell assignment).")
-def new(url: str, id_only: bool):
+@click.option("--snapshot", is_flag=True, default=False, help="Auto-capture accessibility tree after page load.")
+@click.option("--depth", default=3, help="Snapshot tree depth (default: 3, only used with --snapshot).")
+def new(url: str, id_only: bool, snapshot: bool, depth: int):
     """新建标签页并等待加载完成。
 
     \b
     示例：
       webcli new https://example.com
+      webcli new https://example.com --snapshot          # 导航 + 自动获取无障碍树
       TARGET=$(webcli new https://example.com --id-only)
     """
     encoded_url = urllib.parse.quote(url, safe=':/?#[]@!$&\'()*+,;=')
-    result = http_get(f"/new?url={encoded_url}")
+    path = f"/new?url={encoded_url}"
+    if snapshot:
+        path += f"&snapshot=1&depth={depth}"
+    result = http_get(path)
     target_id = result.get("targetId", "")
     if id_only:
         print(target_id)
     else:
-        print(json.dumps(result, indent=2))
-        if target_id:
-            print(f"\n# Next: webcli snapshot {target_id}  |  webcli eval {target_id} \"...\"  |  webcli screenshot {target_id} shot.png")
+        snapshot_text = result.get("snapshot", "")
+        if snapshot_text:
+            print(snapshot_text)
+            node_count = result.get("nodeCount", 0)
+            ref_count = len(result.get("refs", {}))
+            if node_count:
+                print(f"\n# {node_count} nodes, {ref_count} refs (depth={depth})")
+            print(f"\n# targetId: {target_id}")
+        else:
+            print(json.dumps(result, indent=2))
+            if target_id:
+                print(f"\n# Next: webcli snapshot {target_id}  |  webcli eval {target_id} \"...\"  |  webcli screenshot {target_id} shot.png")
 
 
 @cli.command(name="open-monitored")
 @click.argument("url")
 @click.option("--id-only", is_flag=True, default=False, help="Print only the targetId (useful for shell assignment).")
-def open_monitored(url: str, id_only: bool):
+@click.option("--snapshot", is_flag=True, default=False, help="Auto-capture accessibility tree after page load.")
+@click.option("--depth", default=3, help="Snapshot tree depth (default: 3, only used with --snapshot).")
+def open_monitored(url: str, id_only: bool, snapshot: bool, depth: int):
     """新建标签页并从第一个请求起开启网络监控。
 
     原子操作：创建空白标签页 → 启动网络捕获 → 导航，确保不遗漏任何初始 XHR/fetch 请求。
@@ -323,18 +341,31 @@ def open_monitored(url: str, id_only: bool):
     \b
     示例：
       webcli open-monitored https://yiche.com
+      webcli open-monitored https://yiche.com --snapshot  # 导航 + 监控 + 自动获取无障碍树
       TARGET=$(webcli open-monitored https://yiche.com --id-only)
       # 随后使用：webcli network-requests $TARGET --type xhr,fetch
     """
     encoded_url = urllib.parse.quote(url, safe=':/?#[]@!$&\'()*+,;=')
-    result = http_get(f"/network/open-monitored?url={encoded_url}", timeout=30000)
+    path = f"/network/open-monitored?url={encoded_url}"
+    if snapshot:
+        path += f"&snapshot=1&depth={depth}"
+    result = http_get(path, timeout=30000)
     target_id = result.get("targetId", "")
     if id_only:
         print(target_id)
     else:
-        print(json.dumps(result, indent=2))
-        if target_id:
-            print(f"\n# Next: webcli network-requests {target_id} --type xhr,fetch  |  webcli snapshot {target_id}  |  webcli eval {target_id} \"...\"")
+        snapshot_text = result.get("snapshot", "")
+        if snapshot_text:
+            print(snapshot_text)
+            node_count = result.get("nodeCount", 0)
+            ref_count = len(result.get("refs", {}))
+            if node_count:
+                print(f"\n# {node_count} nodes, {ref_count} refs (depth={depth})")
+            print(f"\n# targetId: {target_id}  |  capturing: network")
+        else:
+            print(json.dumps(result, indent=2))
+            if target_id:
+                print(f"\n# Next: webcli network-requests {target_id} --type xhr,fetch  |  webcli snapshot {target_id}  |  webcli eval {target_id} \"...\"")
 
 @cli.command()
 @click.argument("target_id")
@@ -347,11 +378,31 @@ def close(target_id: str):
 @cli.command()
 @click.argument("target_id")
 @click.argument("url")
-def navigate(target_id: str, url: str):
-    """在当前标签页导航到指定 URL。"""
+@click.option("--snapshot", is_flag=True, default=False, help="Auto-capture accessibility tree after navigation.")
+@click.option("--depth", default=3, help="Snapshot tree depth (default: 3, only used with --snapshot).")
+def navigate(target_id: str, url: str, snapshot: bool, depth: int):
+    """在当前标签页导航到指定 URL。
+
+    \b
+    示例：
+      webcli navigate <id> https://example.com
+      webcli navigate <id> https://example.com --snapshot  # 导航 + 自动获取无障碍树
+    """
     encoded_url = urllib.parse.quote(url, safe=':/?#[]@!$&\'()*+,;=')
-    result = http_get(f"/navigate?target={target_id}&url={encoded_url}")
-    print(json.dumps(result, indent=2))
+    path = f"/navigate?target={target_id}&url={encoded_url}"
+    if snapshot:
+        path += f"&snapshot=1&depth={depth}"
+    result = http_get(path)
+    snapshot_text = result.get("snapshot", "")
+    if snapshot_text:
+        print(snapshot_text)
+        node_count = result.get("nodeCount", 0)
+        ref_count = len(result.get("refs", {}))
+        if node_count:
+            print(f"\n# {node_count} nodes, {ref_count} refs (depth={depth})")
+        print(f"\n# url: {result.get('url', '')}")
+    else:
+        print(json.dumps(result, indent=2))
 
 
 @cli.command()
@@ -881,13 +932,15 @@ def network_stop(target_id: str):
 @click.option("--type", "res_type", default="", help="Filter by resource type (xhr, fetch, document, script, stylesheet, image...).")
 @click.option("--status", default="", help="Filter by status code (200, 2xx, 400-499).")
 @click.option("--limit", default=0, help="Return only the most recent N requests (0 = all).")
-def network_requests(target_id: str, url_filter: str, method: str, res_type: str, status: str, limit: int):
+@click.option("--body", is_flag=True, default=False, help="Include response body for each request (saves a separate network-request call).")
+def network_requests(target_id: str, url_filter: str, method: str, res_type: str, status: str, limit: int, body: bool):
     """列出捕获的网络请求，支持多种过滤条件。
 
     \b
     示例：
       webcli network-requests <id>
       webcli network-requests <id> --type xhr,fetch
+      webcli network-requests <id> --type xhr,fetch --body   # 列表 + 响应体一步到位
       webcli network-requests <id> --filter /api/ --method POST
       webcli network-requests <id> --status 2xx
       webcli network-requests <id> --limit 20
@@ -903,7 +956,9 @@ def network_requests(target_id: str, url_filter: str, method: str, res_type: str
         path += f"&status={status}"
     if limit:
         path += f"&limit={limit}"
-    result = http_get(path)
+    if body:
+        path += "&body=1"
+    result = http_get(path, timeout=60000)
     requests_list = result.get("requests", [])
     total = result.get("total", 0)
     returned = result.get("returned", len(requests_list))
@@ -921,6 +976,13 @@ def network_requests(target_id: str, url_filter: str, method: str, res_type: str
         failed_flag = "❌" if req.get("failed") else "  "
         print(f"  {body_flag}{failed_flag} [{status_str}] {method_str} {type_str} {url_str}")
         print(f"       webcli network-request {target_id} {req_id}")
+        response_body = req.get("responseBody")
+        if response_body is not None:
+            print(f"       --- response body ---")
+            print(f"       {response_body[:2000]}")
+            if len(response_body) > 2000:
+                print(f"       ... ({len(response_body)} chars total, truncated)")
+            print()
 
 
 @cli.command(name="network-request")
