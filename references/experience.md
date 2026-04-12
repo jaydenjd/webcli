@@ -74,7 +74,7 @@
 | 自检项 | 合格标准 |
 |--------|----------|
 | **代码是否完整可执行** | 复制代码后只需填入参数即可运行，无需补充任何函数定义或导入语句 |
-| **是否使用通用库** | 使用 Playwright、Selenium、requests 等通用库，**不能依赖 webcli 等专用工具** |
+| **是否使用通用库** | 使用 Playwright、Drissionpage、requests 等通用库，**不能依赖 webcli 等专用工具** |
 | **是否包含所有依赖** | 所有被调用的函数都有完整定义，所有导入语句都已包含 |
 | **是否有使用示例** | 提供 `if __name__ == "__main__"` 使用示例，展示如何调用 |
 | **是否经过验证** | 代码必须经过实际运行验证，**执行后能返回预期结果**，不能是理论推导 |
@@ -276,7 +276,7 @@ confidence: high | medium | low           # 可信度
 ~/.agents/skills/webcli_exp/
 ├── sites/
 │   └── {site-domain}/
-│       ├── api/          # 接口数据获取经验（webcli 抓包发现的接口）
+│       ├── api/          # 接口数据获取经验
 │       ├── login/        # 自动化登录经验
 │       └── action/       # 自动化操作经验（页面交互流程、跨站点任务）
 └── anti-crawl/           # 反爬对抗经验（跨站点通用）
@@ -441,9 +441,6 @@ updated_at: {YYYY-MM-DD HH:MM:SS}
 - {如：MD5 结果必须小写，大写会被拒绝}
 - {如：JSON key 顺序影响签名，必须按固定顺序序列化}
 
-## 抓包方式
-通过 `webcli network-requests` 或 `webcli network-response` 抓包获取。
-
 ## 注意事项
 - {频率限制、Token 有效期、分页逻辑等}
 ```
@@ -481,7 +478,7 @@ updated_at: {YYYY-MM-DD HH:MM:SS}
 >
 > **方案选择原则**：
 > - **SSR 直出**：优先使用 `requests + BeautifulSoup/lxml`（最轻量，无需启动浏览器）
-> - **JS 异步渲染/懒加载**：使用 `Playwright/Selenium`（必须浏览器）
+> - **JS 异步渲染/懒加载**：使用 `Playwright/Drissionpage`（必须浏览器）
 >
 > 请根据页面的实际渲染方式选择合适的方案，并编写完整可执行的代码。
 
@@ -519,17 +516,22 @@ updated_at: {YYYY-MM-DD HH:MM:SS}
 2. {步骤二}
 3. {步骤三}
 
-## 关键操作
-```bash
-webcli fill {target_id} "#username" "your_username"
-webcli fill {target_id} "#password" "your_password"
-webcli click {target_id} "#login-btn"
-```
+## 关键选择器
+| 元素 | 选择器 | 备注 |
+|------|--------|------|
+| 用户名输入框 | `#username` | {备注} |
+| 密码输入框 | `#password` | {备注} |
+| 登录按钮 | `#login-btn` | {备注} |
+
+## 完整可执行代码
+
+> 必须是可直接运行的 Python 代码，**不能依赖 webcli 等专用工具**。
+> 使用 Playwright 或 Drissionpage 等通用库实现登录流程。
 
 ## Cookie 获取
-- 登录成功后通过 `webcli cookies {target_id}` 获取
 - 关键 Cookie 字段：{列出关键字段名}
 - Cookie 有效期：{有效期说明}
+- Cookie 提取方式：{从 Playwright/Drissionpage 的 context.cookies() 获取}
 
 ## 注意事项
 - {验证码处理方式、二次验证、风控规避等}
@@ -542,7 +544,7 @@ webcli click {target_id} "#login-btn"
 
 ### action 类经验
 
-> **重要**：action 类经验必须包含**完整可执行的 Python 代码**，使用 Playwright 或 Selenium 等通用库，**不能依赖 webcli 等专用工具**。
+> **重要**：action 类经验必须包含**完整可执行的 Python 代码**，使用 Playwright 或 Drissionpage 等通用库，**不能依赖 webcli 等专用工具**。
 
 ```markdown
 ---
